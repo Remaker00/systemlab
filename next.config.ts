@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // the floating Next.js dev badge collides with the canvas status annotation
+  devIndicators: false,
 };
 
 export default nextConfig;
