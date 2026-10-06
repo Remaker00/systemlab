@@ -1,9 +1,9 @@
 "use client";
 
-import { EdgeLabelRenderer, getBezierPath, useReactFlow, type EdgeProps } from "@xyflow/react";
+import { EdgeLabelRenderer, getBezierPath, useNodes, useReactFlow, type EdgeProps } from "@xyflow/react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
-import type { LabEdge } from "@/lib/graph";
+import { isReplication, type LabEdge, type LabNode } from "@/lib/graph";
 import { SLOW_LINK_MS } from "@/lib/sim/engine";
 import { useDimmed, useLab } from "../LabContext";
 
@@ -18,6 +18,8 @@ const PEN = [0.65, 0, 0.35, 1] as const;
  */
 export function SketchEdge({
   id,
+  source,
+  target,
   sourceX,
   sourceY,
   targetX,
@@ -27,8 +29,11 @@ export function SketchEdge({
   data,
   selected,
 }: EdgeProps<LabEdge>) {
-  const { running, focusedId, fault } = useLab();
+  const { running, focusedId, fault, review } = useLab();
   const slow = fault?.kind === "latency";
+  // the workshop marks a link that doesn't make sense; a primary → replica link carries copies, not requests
+  const wrong = review?.edges.get(id);
+  const replication = useReplication(source, target);
   const dimmed = useDimmed("edge", id);
   const lit = !!focusedId && !dimmed;
   const { deleteElements } = useReactFlow();
@@ -56,7 +61,7 @@ export function SketchEdge({
     curvature: 0.8,
   });
 
-  const ink = selected ? "var(--accent)" : lit ? "var(--ink)" : "var(--ink-soft)";
+  const ink = selected ? "var(--accent)" : wrong ? "var(--fault)" : lit ? "var(--ink)" : "var(--ink-soft)";
 
   return (
     <>
@@ -72,6 +77,7 @@ export function SketchEdge({
           fill="none"
           stroke={ink}
           strokeWidth={selected || lit ? 1.1 : 0.9}
+          strokeDasharray={wrong ? "5 4" : replication ? "1 3.5" : undefined}
           strokeLinecap="round"
           initial={{ pathLength: 0 }}
           animate={{ pathLength: cutting ? 0 : 1 }}
@@ -82,7 +88,7 @@ export function SketchEdge({
 
         {/* degraded link: a crawling dashed overlay, like a line drawn in hesitant strokes */}
         <AnimatePresence>
-          {slow && !cutting && (
+          {slow && !cutting && !replication && (
             <motion.path
               key="slow"
               d={path}
@@ -128,7 +134,7 @@ export function SketchEdge({
                 onClick={() => setCutting(true)}
                 aria-label="Cut link"
                 title="Cut link  (⌫)"
-                className="pointer-events-auto flex h-5 cursor-pointer items-center gap-1.5 border border-accent/30 bg-[#0c0c0b]/90 px-2 font-mono text-[8px] uppercase tracking-[0.24em] text-accent transition-colors hover:border-accent hover:shadow-[0_0_10px_var(--accent-glow)]"
+                className="pointer-events-auto flex h-5 cursor-pointer items-center gap-1.5 border border-accent/30 bg-[#0c0c0b]/90 px-2 font-mono text-[10px] uppercase tracking-[0.15em] text-accent transition-colors hover:border-accent hover:shadow-[0_0_10px_var(--accent-glow)]"
                 initial={{ opacity: 0, y: 4 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: 4 }}
@@ -141,18 +147,31 @@ export function SketchEdge({
               </motion.button>
             )}
           </AnimatePresence>
-          {data?.label && (
-            <span
-              className={`pointer-events-none font-mono text-[8px] uppercase tracking-[0.24em] transition-colors duration-700 ${
-                running || selected ? "text-accent/80" : lit ? "text-ink-soft" : "text-ink-faint"
-              }`}
-            >
-              {data.label}
-              {slow && <span className="text-fault"> · +{SLOW_LINK_MS}ms</span>}
+          {wrong ? (
+            <span className="pointer-events-none font-mono text-[10px] uppercase tracking-[0.15em] text-fault/90" title={wrong.why}>
+              ✕ {wrong.tag}
             </span>
+          ) : (
+            data?.label && (
+              <span
+                className={`pointer-events-none font-mono text-[10px] uppercase tracking-[0.15em] transition-colors duration-700 ${
+                  running || selected ? "text-accent/80" : lit ? "text-ink-soft" : "text-ink-faint"
+                }`}
+              >
+                {data.label}
+                {slow && !replication && <span className="text-fault"> · +{SLOW_LINK_MS}ms</span>}
+              </span>
+            )
           )}
         </motion.div>
       </EdgeLabelRenderer>
     </>
   );
+}
+
+/** Whether this link copies data from a primary to a replica (drawn dotted, like a hidden line: no requests ride it). */
+function useReplication(source: string, target: string): boolean {
+  const nodes = useNodes<LabNode>();
+  const type = (id: string) => nodes.find((n) => n.id === id)?.type;
+  return isReplication(type(source), type(target));
 }

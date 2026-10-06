@@ -2,6 +2,7 @@
 
 import { createContext, useContext } from "react";
 import { emptyMetrics, type Fault, type Metrics } from "@/lib/sim/engine";
+import type { Review } from "@/lib/workshop";
 
 /**
  * Canvas-wide visual state.
@@ -24,6 +25,10 @@ export type LabState = {
   scale: number;
   /** node-data tunables this sheet doesn't let you change */
   locked: readonly string[];
+  /** the Architecture Workshop sheet: databases can feed replicas, and the drawing is reviewed as it's drawn */
+  workshop: boolean;
+  /** the workshop's live review of the drawing (null on other sheets) */
+  review: Review | null;
 };
 
 export const LabContext = createContext<LabState>({
@@ -36,6 +41,8 @@ export const LabContext = createContext<LabState>({
   fault: null,
   scale: 1,
   locked: [],
+  workshop: false,
+  review: null,
 });
 
 /** Formatters for quantities the sheet's scale applies to: request rates and request counts. */

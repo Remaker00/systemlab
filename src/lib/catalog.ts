@@ -1,5 +1,5 @@
 import type { LabNodeType } from "./graph";
-import { HOT_KEYS } from "./sim/engine";
+import { HOT_KEYS, JOB_MAX_WAIT_S } from "./sim/engine";
 
 /**
  * Static reference notes for each component, shown in the focus annotation.
@@ -67,5 +67,60 @@ export const catalog: Record<LabNodeType, ComponentSpec> = {
       ["scales", "vertically"],
     ],
     fragility: "Connection limits are reached long before CPU is.",
+  },
+  gateway: {
+    role: "Front door",
+    summary: "One address for the whole backend. Every request enters here and is routed to a service behind it.",
+    why: "Clients shouldn't know how many servers you run or where they live. One door is also the one place to check who's calling and to turn excess away.",
+    properties: [
+      ["routing", "round-robin"],
+      ["auth", "at the door"],
+      ["cost", "~2 ms"],
+    ],
+    fragility: "Everything passes through it. If the door is shut, nothing behind it matters.",
+  },
+  cdn: {
+    role: "Edge cache",
+    summary: "Copies of your static answers kept close to the users. A hit never crosses your network at all.",
+    why: "Many requests are for the same images, scripts and pages. Serving those from the edge removes them from your servers entirely.",
+    properties: [
+      ["sits", "before the front door"],
+      ["serves", "static, cacheable"],
+      ["on miss", "asks the origin"],
+    ],
+    fragility: "Purge it, or let it expire, and the whole crowd lands on the origin at once.",
+  },
+  queue: {
+    role: "Buffer",
+    summary: "Takes a job, answers \"accepted\" straight away, and holds the job until a worker is free.",
+    why: "Slow work (emails, images, reports) doesn't need to finish while the caller waits. A queue lets bursts arrive faster than they can be done, and evens them out.",
+    properties: [
+      ["answers", "on accept"],
+      ["delivery", "least-busy worker"],
+      ["holds", `up to ~${JOB_MAX_WAIT_S}s of work`],
+    ],
+    fragility: "A queue hides a slow consumer. The backlog grows quietly until it is full.",
+  },
+  worker: {
+    role: "Background compute",
+    summary: "Takes jobs from a queue one at a time and does the slow part, out of the caller's way.",
+    why: "Workers scale apart from the API: add workers when the backlog grows, without touching the request path.",
+    properties: [
+      ["reads from", "a queue"],
+      ["state", "none"],
+      ["scales", "horizontally"],
+    ],
+    fragility: "Too few workers and the backlog only ever grows.",
+  },
+  replica: {
+    role: "Read-only copy",
+    summary: "A copy of the primary database that answers reads, so the primary has more room for writes.",
+    why: "Most traffic reads. Spreading reads across copies multiplies read capacity without making one machine bigger.",
+    properties: [
+      ["copies", "the primary"],
+      ["serves", "reads only"],
+      ["lag", "slightly behind"],
+    ],
+    fragility: "It's always a moment behind: a read just after a write may not see it yet.",
   },
 };

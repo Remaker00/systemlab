@@ -18,13 +18,13 @@ export const DB_ID = "database";
 
 // ── sheets ─────────────────────────────────────────────────────────
 
-export type SheetId = "foundation" | "surge";
+export type SheetId = "foundation" | "surge" | "workshop";
 
 export type Sheet = {
   id: SheetId;
   number: string;
   title: string;
-  kind: "sandbox" | "challenge";
+  kind: "sandbox" | "challenge" | "workshop";
   scale: number;
   traffic: number;
   nodes: LabNode[];
@@ -67,6 +67,25 @@ export const sheets: Record<SheetId, Sheet> = {
     scale: SCALE,
     traffic: CALM_RATE,
     nodes: surgeNodes,
+    edges: [],
+  },
+  // the Architecture Workshop: a blank sheet with only the traffic source; everything else is built
+  workshop: {
+    id: "workshop",
+    number: "03",
+    title: "Workshop",
+    kind: "workshop",
+    scale: 1,
+    traffic: DEFAULT_TRAFFIC,
+    nodes: [
+      {
+        id: "users",
+        type: "users",
+        deletable: false,
+        position: { x: 0, y: 40 },
+        data: { index: "01", title: "Users", meta: "clients · ingress" },
+      },
+    ],
     edges: [],
   },
 };

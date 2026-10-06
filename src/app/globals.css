@@ -11,6 +11,9 @@
   --ink-soft: rgba(232, 227, 216, 0.55);
   --ink-faint: rgba(232, 227, 216, 0.28);
   --ink-ghost: rgba(232, 227, 216, 0.08);
+  /* Text tones are brighter than the stroke tones above: small labels must read without zooming. */
+  --text-soft: rgba(232, 227, 216, 0.78);
+  --text-faint: rgba(232, 227, 216, 0.56);
   --accent: #e8a35a;         /* sodium lamp amber */
   --accent-glow: rgba(232, 163, 90, 0.45);
   --fault: #d8644c;          /* oxidised red — failure only (rejections, overload) */
@@ -20,11 +23,11 @@
 @theme inline {
   --color-paper: var(--paper);
   --color-ink: var(--ink);
-  --color-ink-soft: var(--ink-soft);
-  --color-ink-faint: var(--ink-faint);
+  --color-ink-soft: var(--text-soft);
+  --color-ink-faint: var(--text-faint);
   --color-accent: var(--accent);
   --color-fault: var(--fault);
-  --font-serif: var(--font-serif);
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-mono);
 }
 
@@ -99,7 +102,7 @@ body {
 }
 .react-flow__attribution a {
   color: var(--ink-soft);
-  font-size: 9px;
+  font-size: 10px;
 }
 
 /* Hairline focus ring for keyboard users, no blue default */

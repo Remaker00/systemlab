@@ -202,3 +202,59 @@ Low criteria show a guiding question ("Do all of those reads really need the dat
 
 ### D44: The comparison ledger counts API servers only
 **Why:** once the DB has a capacity (challenge), it was being counted as part of the server pool.
+
+### D45: The workshop is a third sheet, not a mode of the sandbox
+Sheet 03 starts with only Users (fixed, as the traffic source). Its parts, review and Designs exist only there.
+**Why:** Parts 1–7 stay exactly as they were (scope discipline). It fits the drawing-set metaphor of D38, and a blank sheet is the point.
+
+### D46: Wrong links are drawn and simulated, then marked. They aren't refused.
+`isValidConnection` still blocks only self-links and duplicates. A link the rule table rejects becomes red dashes with a reason.
+**Why:** the brief is to *validate* and teach. Silently refusing a drag teaches nothing, but "✕ no server between" plus its sentence
+does, and running it shows the real consequence. Fault red is right here: the design fails at that link.
+
+### D47: Bottlenecks are planned, not measured
+`reviewDesign` propagates 1 req/s from Users with the engine's own routing rules (equal forks, capacity-weighted at queues,
+only misses past caches) to get per-part load, the ceiling and the first part to give.
+**Why:** a design review should read before you press Run, and it must agree with the model, so it reuses the same rules.
+The live readouts still show the measured truth (e.g. a short TTL makes it worse than planned).
+
+### D48: Queue semantics: answered on accept, failures out of sight
+The caller's request succeeds at the queue. Workers drain it with a 20s waiting budget, and a full queue refuses at the door.
+Jobs that fail later are counted as lost at the queue, not as request errors.
+**Why:** that's the honest trade-off of async work: callers stay fast and the risk moves into a backlog you have to watch.
+It's also why the database-failure copy needed the replica/queue cases (the old copy claimed 100% errors that didn't happen).
+
+### D49: Replication is a link type derived from its ends (database → replica)
+It's drawn dotted (a hidden line in drafting terms), excluded from the engine's routing, and gives the replica its data
+(`detached` otherwise). A database gets a source handle only in the workshop.
+**Why:** no new edge-type machinery, saved designs need no extra fields, and the sandbox database keeps a single handle.
+
+### D50: Drag-and-drop uses pointer events from the drawer, not HTML5 DnD
+**Why:** the drawer has to close mid-drag (so the sheet is visible), which unmounts the drag source. HTML5 DnD doesn't handle
+that reliably, and pointer events also work for touch (`touch-action: none`). A press with no movement stays a click.
+
+### D51: Designs live in localStorage, behind guards
+`src/lib/designs.ts` reads and writes in try/catch and validates what it loads. A refused save says so in the popover.
+Same name = replace. Links are relabelled from their ends when opened. Reset returns to the last saved/opened design.
+**Why:** there's no backend. "Save and reopen" is per-person and per-browser, which suits a learning sandbox.
+
+### D52: The workshop's fit-to-view is capped at 100% zoom (`WORKSHOP_FIT`)
+**Why:** a sheet holding only Users otherwise fits to ~240%, which makes every dropped part and note enormous. Other sheets keep
+their uncapped fit so they look exactly as before.
+
+### D53: Readability over the original "tiny italic" look
+Names and prose use Inter upright instead of Instrument Serif italic. Mono labels are 9–11px with ~0.15em tracking, and
+text has its own brighter tones (`--text-soft`/`--text-faint`). Tailwind's `ink-soft`/`ink-faint` colours point at them,
+while SVG strokes keep `--ink-soft`/`--ink-faint` through `var()`.
+**Why:** the user found the faint, condensed italic text hard to read without zooming. Splitting text from strokes keeps
+the drawing's hairline look intact.
+
+### D54: Site URL comes from `NEXT_PUBLIC_SITE_URL`
+`src/lib/site.ts` falls back to localhost. It feeds `metadataBase`, the sitemap, robots and JSON-LD.
+**Why:** there's no production domain yet, and canonical/OG URLs have to be absolute.
+
+### D55: Workshop Reset gives a blank sheet
+Reset clears the workshop to Users only and drops the design name. Saved designs are untouched and reopen from Designs → Open.
+This replaces Part 8's "Reset returns to the last saved or opened design".
+**Why:** the user expected Reset to start a new workshop. Returning to the saved design made it look as if Reset did nothing.
+

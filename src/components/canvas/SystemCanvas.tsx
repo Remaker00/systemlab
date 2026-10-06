@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   addEdge,
   Background,
@@ -22,6 +23,7 @@ import {
   edgeId,
   initialEdges,
   initialNodes,
+  isReplication,
   linkLabel,
   type AddableType,
   type LabEdge,
@@ -49,13 +51,27 @@ import {
   type Trial,
 } from "@/lib/challenge";
 import { useSimulation } from "@/lib/sim/useSimulation";
+import { openDesign, saveDesign, type SavedDesign } from "@/lib/designs";
+import { reviewDesign, type Issue } from "@/lib/workshop";
 import { CanvasControls } from "./CanvasControls";
 import { ConnectionLine } from "./edges/ConnectionLine";
 import { SketchEdge } from "./edges/SketchEdge";
 import { ChallengeNote } from "./ChallengeNote";
 import { ExperimentNote } from "./ExperimentNote";
 import { LabContext, useScaled, type LabState } from "./LabContext";
-import { ApiNode, CacheNode, DatabaseNode, LoadBalancerNode, UsersNode } from "./nodes/glyphs";
+import {
+  ApiNode,
+  CacheNode,
+  CdnNode,
+  DatabaseNode,
+  GatewayNode,
+  LoadBalancerNode,
+  QueueNode,
+  ReplicaNode,
+  UsersNode,
+  WorkerNode,
+} from "./nodes/glyphs";
+import { WorkshopNote } from "./WorkshopNote";
 import { ParticleLayer } from "./ParticleLayer";
 import { SketchDefs } from "./SketchDefs";
 
@@ -66,10 +82,20 @@ const nodeTypes: NodeTypes = {
   database: DatabaseNode,
   loadbalancer: LoadBalancerNode,
   cache: CacheNode,
+  gateway: GatewayNode,
+  cdn: CdnNode,
+  queue: QueueNode,
+  worker: WorkerNode,
+  replica: ReplicaNode,
 };
+
+/** What + Add offers: the sandbox and the challenge keep their three parts; the workshop has everything. */
+const ADDABLE_BASIC: readonly AddableType[] = ["loadbalancer", "api", "cache"];
+const ADDABLE_ALL: readonly AddableType[] = ["cdn", "gateway", "loadbalancer", "api", "queue", "worker", "cache", "database", "replica"];
 const edgeTypes: EdgeTypes = { sketch: SketchEdge };
 
 const FIT = { padding: 0.35 };
+const WORKSHOP_FIT = { ...FIT, maxZoom: 1 }; // a sparse sheet (the blank workshop) mustn't fit to a giant zoom
 const STRIP_CLEARANCE = 110; // px kept clear above the bottom control strip
 const TITLE_CLEARANCE = 130; // px kept clear below the title block
 const SIDE_CLEARANCE = 24;
@@ -153,6 +179,7 @@ function Canvas() {
   const [sheetId, setSheetId] = useState<SheetId>("foundation");
   const sheet = sheets[sheetId];
   const challenge = sheet.kind === "challenge";
+  const workshop = sheet.kind === "workshop";
   const savedSheets = useRef(new Map<SheetId, { nodes: LabNode[]; edges: LabEdge[]; traffic: number }>());
 
   // ── the challenge trial (architecture is frozen at the start, so later edits can't rewrite a score) ──
@@ -170,19 +197,23 @@ function Canvas() {
   >();
 
   // ── simulation: a structural view of the graph, rebuilt as links and capacities change ──
-  const simGraph = useMemo<SimGraph>(
-    () => ({
+  // Replication links copy data and carry no requests, so the engine never routes along them;
+  // a replica with no primary feeding it has nothing to answer with.
+  const simGraph = useMemo<SimGraph>(() => {
+    const type = (id: string) => nodes.find((n) => n.id === id)?.type;
+    const copies = edges.filter((e) => isReplication(type(e.source), type(e.target)));
+    return {
       nodes: nodes.map((n) => ({
         id: n.id,
         type: n.type ?? "",
         capacity: n.data.capacity,
         hitShare: n.data.hitShare,
         ttl: n.data.ttl,
+        detached: n.type === "replica" && !copies.some((e) => e.target === n.id),
       })),
-      edges: edges.map((e) => ({ id: e.id, source: e.source, target: e.target })),
-    }),
-    [nodes, edges],
-  );
+      edges: edges.filter((e) => !copies.includes(e)).map((e) => ({ id: e.id, source: e.source, target: e.target })),
+    };
+  }, [nodes, edges]);
   // an experiment ends by itself if the part it broke is removed from the sheet
   const live = experiment && nodes.some((n) => n.id === experiment.target) ? experiment : null;
   const fault = useMemo<Fault | null>(
@@ -212,6 +243,13 @@ function Canvas() {
   const effectiveTraffic = phase ? phase.rate : traffic;
   const activeFault = isFaultActive(fault ?? trialFault, metrics.time) ? (fault ?? trialFault) : null;
 
+  // ── the workshop reviews the drawing as it's drawn ──
+  const review = useMemo(
+    () => (workshop ? reviewDesign(nodes, edges, effectiveTraffic) : null),
+    [workshop, nodes, edges, effectiveTraffic],
+  );
+  const [designName, setDesignName] = useState<string | null>(null);
+
   // ── focus: exactly one selected node ──────────────────────────────
   const lab = useMemo<LabState>(() => {
     const selected = nodes.filter((n) => n.selected);
@@ -237,8 +275,10 @@ function Canvas() {
       fault: activeFault,
       scale: sheet.scale,
       locked: challenge ? CHALLENGE_LOCKED : [],
+      workshop,
+      review,
     };
-  }, [nodes, edges, running, metrics, effectiveTraffic, activeFault, sheet.scale, challenge]);
+  }, [nodes, edges, running, metrics, effectiveTraffic, activeFault, sheet.scale, challenge, workshop, review]);
 
   const focusedRemovable = !!lab.focusedId && nodes.find((n) => n.id === lab.focusedId)?.deletable !== false;
 
@@ -320,6 +360,12 @@ function Canvas() {
     if (challengeBeat) return frameWithSystem("[data-sl-challenge]", challengeBeat.endsWith("brief") ? 1500 : 200);
   }, [challengeBeat, frameWithSystem]);
 
+  // the workshop's review is framed with the drawing when the sheet (or a design) opens, not on every edit
+  const [workshopFrame, setWorkshopFrame] = useState(0);
+  useEffect(() => {
+    if (workshop) return frameWithSystem("[data-sl-workshop]", 1500);
+  }, [workshop, workshopFrame, frameWithSystem]);
+
   const clearSelection = useCallback(() => {
     setNodes((ns) => (ns.some((n) => n.selected) ? ns.map((n) => ({ ...n, selected: false })) : ns));
     setEdges((es) => (es.some((e) => e.selected) ? es.map((e) => ({ ...e, selected: false })) : es));
@@ -351,9 +397,9 @@ function Canvas() {
     [nodes, setEdges],
   );
 
-  // ── adding components: placed in free space, drawn in, and focused so their note explains them ──
+  // ── adding components: placed in free space (or where dropped), drawn in, and focused so their note explains them ──
   const addComponent = useCallback(
-    (type: AddableType) => {
+    (type: AddableType, at?: { x: number; y: number }) => {
       const ns = nodes;
       const apis = ns.filter((n) => n.type === "api");
       const users = ns.find((n) => n.type === "users");
@@ -362,8 +408,10 @@ function Canvas() {
       // a cache goes *above* the API → Database span, so its link down to the database
       // leaves away from its readout (which sits above-right of every glyph)
       const midX = (a?: LabNode, b?: LabNode) => ((a?.position.x ?? 0) + (b?.position.x ?? 400)) / 2;
-      const preferred =
-        type === "api" && apis.length
+      const rightmost = Math.max(...ns.map((n) => n.position.x));
+      const preferred = workshop
+        ? { x: rightmost + 260, y: users?.position.y ?? 0 } // the workshop grows left to right, in the order you build
+        : type === "api" && apis.length
           ? { x: apis[0].position.x, y: Math.max(...apis.map((n) => n.position.y)) + FOOTPRINT.h }
           : type === "cache"
             ? {
@@ -371,7 +419,7 @@ function Canvas() {
                 y: Math.min(apis[0]?.position.y ?? 0, db?.position.y ?? 0) - FOOTPRINT.h - 20,
               }
             : { x: midX(users, apis[0]), y: (users?.position.y ?? 0) + FOOTPRINT.h };
-      const created = createNode(type, ns, freeSpot(ns, preferred));
+      const created = createNode(type, ns, at ?? freeSpot(ns, preferred));
       // the challenge fixes server capacity: the answer has to be architecture
       const node: LabNode = {
         ...created,
@@ -381,11 +429,21 @@ function Canvas() {
       setNodes((cur) => [...cur.map((n) => (n.selected ? { ...n, selected: false } : n)), node]);
 
       if (challenge) setEdges(slotIn(node, ns, edges));
-      // frame the whole sheet once the new node has been measured
+      // a dropped part stays where it was put; otherwise frame the whole sheet once the new node has been measured
+      if (at) return;
       framingUntil.current = performance.now() + 60 + 800 + 50;
-      setTimeout(() => fitView({ ...FIT, duration: 800 }), 60);
+      setTimeout(() => fitView({ ...(workshop ? WORKSHOP_FIT : FIT), duration: 800 }), 60);
     },
-    [nodes, edges, challenge, setNodes, setEdges, fitView],
+    [nodes, edges, challenge, workshop, setNodes, setEdges, fitView],
+  );
+
+  /** A part dragged out of the drawer: centre its glyph under the pointer. */
+  const dropComponent = useCallback(
+    (type: AddableType, point: { x: number; y: number }) => {
+      const p = screenToFlowPosition(point);
+      addComponent(type, { x: p.x - 75, y: p.y - 60 }); // a node is 150 wide; its glyph is the top 120
+    },
+    [addComponent, screenToFlowPosition],
   );
 
   // ── Break the System ─────────────────────────────────────────────
@@ -394,7 +452,11 @@ function Canvas() {
     const fed = new Set(edges.filter((e) => type(e.target) === "api").map((e) => e.target));
     const balanced = edges.some((e) => type(e.source) === "loadbalancer" && type(e.target) === "api");
     const cached = edges.some((e) => type(e.source) === "cache" && type(e.target) === "database");
-    return { servers: fed.size, balanced, cached };
+    const into = (from: string[], to: string) => edges.some((e) => from.includes(type(e.source) ?? "") && type(e.target) === to);
+    const replicated = into(["api", "cache", "worker"], "replica") && into(["database"], "replica");
+    const queued = into(["worker"], "database") && into(["queue"], "worker");
+    const direct = into(["users", "api", "cache", "loadbalancer", "gateway", "cdn"], "database");
+    return { servers: fed.size, balanced, cached, replicated, queued, direct };
   }, [nodes, edges]);
 
   const startExperiment = useCallback(
@@ -437,12 +499,57 @@ function Canvas() {
     quietSince.current = 0;
     setRunning(false);
     resetSim();
+    // the workshop resets to a blank sheet; saved designs stay under Designs → Open
+    if (workshop) setDesignName(null);
     setNodes(sheet.nodes);
     setEdges(sheet.edges);
     setTraffic(sheet.traffic);
     // let the restored positions land before framing them
-    requestAnimationFrame(() => fitView({ ...FIT, duration: 900 }));
-  }, [sheet, setNodes, setEdges, fitView, resetSim]);
+    requestAnimationFrame(() => fitView({ ...(workshop ? WORKSHOP_FIT : FIT), duration: 900 }));
+  }, [sheet, workshop, setNodes, setEdges, fitView, resetSim]);
+
+  // ── saved designs (workshop) ─────────────────────────────────────
+  const onSaveDesign = useCallback(
+    (name: string) => {
+      const ok = saveDesign(name, nodes, edges, traffic);
+      if (ok) {
+        setDesignName(name);
+      }
+      return ok;
+    },
+    [nodes, edges, traffic],
+  );
+
+  const onOpenDesign = useCallback(
+    (d: SavedDesign) => {
+      const opened = openDesign(d);
+      setDesignName(d.name);
+      setExperiment(null);
+      quietSince.current = 0;
+      setRunning(false);
+      resetSim();
+      setNodes(opened.nodes);
+      setEdges(opened.edges);
+      setTraffic(opened.traffic);
+      setTimeout(() => fitView({ ...WORKSHOP_FIT, duration: 900 }), 60);
+      setWorkshopFrame((f) => f + 1);
+    },
+    [setNodes, setEdges, resetSim, fitView],
+  );
+
+  /** A line in the review points at its part: focus it (or select the link). */
+  const pickIssue = useCallback(
+    (issue: Issue) => {
+      if (issue.node) {
+        setEdges((es) => es.map((e) => (e.selected ? { ...e, selected: false } : e)));
+        setNodes((ns) => ns.map((n) => ({ ...n, selected: n.id === issue.node })));
+      } else if (issue.edge) {
+        setNodes((ns) => ns.map((n) => (n.selected ? { ...n, selected: false } : n)));
+        setEdges((es) => es.map((e) => ({ ...e, selected: e.id === issue.edge })));
+      }
+    },
+    [setNodes, setEdges],
+  );
 
   /** Leave this sheet as it is and open another; each sheet remembers its own drawing. */
   const switchSheet = useCallback(
@@ -460,7 +567,7 @@ function Canvas() {
       setNodes(next.nodes.map((n) => ({ ...n, selected: false })));
       setEdges(next.edges);
       setTraffic(next.traffic);
-      setTimeout(() => fitView({ ...FIT, duration: 900 }), 60);
+      setTimeout(() => fitView({ ...(sheets[id].kind === "workshop" ? WORKSHOP_FIT : FIT), duration: 900 }), 60);
     },
     [sheetId, nodes, edges, traffic, setNodes, setEdges, resetSim, fitView],
   );
@@ -524,6 +631,17 @@ function Canvas() {
               onStop={stopTrial}
             />
           )}
+          {review && nodes.some((n) => n.type === "users") && (
+            <WorkshopNote
+              anchor={nodes.find((n) => n.type === "users")!.position}
+              review={review}
+              parts={nodes.filter((n) => n.type !== "users").length}
+              traffic={effectiveTraffic}
+              bottleneckName={nodes.find((n) => n.id === review.bottleneck)?.data.title ?? null}
+              design={designName}
+              onPick={pickIssue}
+            />
+          )}
           <AnimatePresence>
             {live && (
               <ExperimentNote
@@ -565,6 +683,10 @@ function Canvas() {
               ? "⌫ or cut — remove link"
               : challenge
                 ? "+ add — build between users and the database"
+              : workshop
+                ? nodes.length === 1
+                  ? "+ add — drag parts onto the sheet"
+                  : "drag ○ → ○ — link the parts"
               : running
                 ? "focus api server — tune capacity"
                 : "drag ○ → ○ — draw a link"
@@ -578,7 +700,11 @@ function Canvas() {
         traffic={effectiveTraffic}
         onTraffic={setTraffic}
         trafficLocked={!!trial && !trialFinished}
+        addable={workshop ? ADDABLE_ALL : ADDABLE_BASIC}
         onAdd={addComponent}
+        onDrop={dropComponent}
+        designs={workshop ? { current: designName, onSave: onSaveDesign, onOpen: onOpenDesign } : undefined}
+        fit={workshop ? WORKSHOP_FIT : FIT}
         experimenting={!!live}
         onBreak={startExperiment}
         onRestore={restore}
@@ -610,14 +736,20 @@ function TitleBlock({ running, metrics, comparison, sheetId, onSheet, objects, l
         animate={{ opacity: 1 }}
         transition={{ duration: 1.6 }}
       >
-        <h1 className="font-serif text-[26px] leading-none text-ink">
-          System<span className="italic">Lab</span>
+        <h1 className="font-sans text-[24px] font-semibold leading-none tracking-[-0.01em] text-ink">
+          System<span className="font-normal text-ink-soft">Lab</span>
         </h1>
-        <p className="mt-2 font-mono text-[8.5px] uppercase tracking-[0.3em] text-ink-faint">Learn by breaking systems</p>
+        <p className="mt-2 font-mono text-[10.5px] uppercase tracking-[0.16em] text-ink-faint">Learn by breaking systems</p>
+        <Link
+          href="/about"
+          className="pointer-events-auto mt-2.5 inline-flex items-center gap-1.5 font-mono text-[10.5px] uppercase tracking-[0.14em] text-ink-soft underline decoration-ink-faint/40 underline-offset-4 transition-colors hover:text-accent hover:decoration-accent/60"
+        >
+          About <span aria-hidden>→</span>
+        </Link>
       </motion.header>
 
       <motion.div
-        className="pointer-events-none absolute right-8 top-8 z-10 hidden sm:block select-none text-right font-mono text-[8.5px] uppercase leading-[1.9] tracking-[0.24em] text-ink-faint"
+        className="pointer-events-none absolute right-8 top-8 z-10 hidden sm:block select-none text-right font-mono text-[10.5px] uppercase leading-[1.9] tracking-[0.15em] text-ink-faint"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 1.6, delay: 0.4 }}
@@ -626,7 +758,7 @@ function TitleBlock({ running, metrics, comparison, sheetId, onSheet, objects, l
         <div>
           {objects} objects · {links} {links === 1 ? "link" : "links"}
         </div>
-        <div className="relative mt-2 h-4 overflow-hidden text-ink-faint/70">
+        <div className="relative mt-1 h-5 overflow-hidden text-ink-faint">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={hint}
@@ -642,7 +774,7 @@ function TitleBlock({ running, metrics, comparison, sheetId, onSheet, objects, l
       </motion.div>
 
       <motion.div
-        className="pointer-events-none absolute bottom-9 left-8 z-10 hidden sm:flex select-none flex-col items-start gap-3 font-mono text-[8.5px] uppercase tracking-[0.28em] text-ink-faint"
+        className="pointer-events-none absolute bottom-9 left-8 z-10 hidden sm:flex select-none flex-col items-start gap-3 font-mono text-[10.5px] uppercase tracking-[0.16em] text-ink-faint"
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 1.6, delay: 0.8 }}
@@ -673,7 +805,7 @@ function SimReadout({ metrics }: { metrics: Metrics }) {
   const scaled = useScaled();
   const item = (label: string, value: string, tone?: string) => (
     <span className="flex gap-3">
-      <span className="w-14 text-ink-faint/70">{label}</span>
+      <span className="w-14 text-ink-faint">{label}</span>
       <span className={`tabular-nums tracking-[0.12em] ${tone ?? "text-ink-soft"}`}>{value}</span>
     </span>
   );
@@ -713,10 +845,10 @@ function ComparisonTable({ rows, current }: { rows: LedgerRow[]; current: number
       exit={{ opacity: 0 }}
       transition={{ duration: 0.5 }}
     >
-      <span className="text-ink-faint/70">Compare · by servers</span>
+      <span className="text-ink-faint">Compare · by servers</span>
       <div className="grid grid-cols-[1.5rem_auto_auto_4rem_2.5rem] gap-x-3 gap-y-1.5">
         {["n", "cap", "traffic", "latency", "err"].map((h) => (
-          <span key={h} className="text-ink-faint/50">
+          <span key={h} className="text-ink-faint">
             {h}
           </span>
         ))}
@@ -748,7 +880,7 @@ function ComparisonTable({ rows, current }: { rows: LedgerRow[]; current: number
         </AnimatePresence>
       </div>
       {rows.length === 1 && (
-        <span className="normal-case tracking-[0.08em] text-ink-faint/60">
+        <span className="normal-case tracking-[0.08em] text-ink-faint">
           {rows[0].servers === 1 ? "add servers behind a balancer to compare" : "run one server to compare"}
         </span>
       )}
@@ -778,23 +910,33 @@ function SheetSwitcher({ current, onSheet }: { current: SheetId; onSheet: (id: S
 
   const sheet = sheets[current];
   return (
-    <div ref={ref} className="pointer-events-auto relative inline-block">
+    <div ref={ref} className="pointer-events-auto relative z-20 inline-block">
       <button
         onClick={() => setOpen((o) => !o)}
         aria-label="Change sheet"
+        aria-haspopup="menu"
+        title="Switch sheet"
         aria-expanded={open}
-        className="group flex cursor-pointer items-center gap-2 uppercase tracking-[0.24em] text-ink-faint transition-colors hover:text-ink-soft"
+        className={`group mb-1.5 flex cursor-pointer items-center gap-2.5 border px-3 py-1.5 uppercase tracking-[0.14em] transition-colors ${
+          open
+            ? "border-accent/60 bg-white/[0.04] text-ink"
+            : "border-white/15 bg-white/[0.02] text-ink-soft hover:border-accent/50 hover:bg-white/[0.04] hover:text-ink"
+        }`}
       >
-        <span>
-          Sheet {sheet.number} — {sheet.title}
+        <span className="text-ink-faint group-hover:text-ink-soft">Sheet {sheet.number}</span>
+        <span>{sheet.title}</span>
+        <span
+          aria-hidden
+          className={`text-[12px] leading-none text-ink-soft transition-transform duration-300 group-hover:text-accent ${open ? "rotate-180 text-accent" : ""}`}
+        >
+          ▾
         </span>
-        <span className={`transition-transform duration-300 ${open ? "rotate-180" : ""}`}>▾</span>
       </button>
       <AnimatePresence>
         {open && (
           <motion.div
             role="menu"
-            className="absolute right-0 top-full mt-3 flex w-64 flex-col border border-white/[0.06] bg-[#0e0e0d]/90 py-1.5 text-left normal-case tracking-normal backdrop-blur-sm"
+            className="absolute right-0 top-full mt-1 flex w-72 flex-col border border-white/10 bg-[#0e0e0d]/95 py-1.5 text-left normal-case tracking-normal backdrop-blur-sm"
             initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
@@ -808,17 +950,17 @@ function SheetSwitcher({ current, onSheet }: { current: SheetId; onSheet: (id: S
                   onSheet(s.id);
                   setOpen(false);
                 }}
-                className="group flex cursor-pointer items-baseline justify-between gap-3 px-3 py-1.5 transition-colors hover:bg-white/[0.03]"
+                className={`group flex cursor-pointer items-baseline justify-between gap-3 border-l-2 px-3 py-2 transition-colors hover:bg-white/[0.05] ${s.id === current ? "border-accent" : "border-transparent"}`}
               >
                 <span className="flex items-baseline gap-2">
-                  <span className="font-mono text-[8px] tracking-[0.2em] text-ink-faint">{s.number}</span>
+                  <span className="font-mono text-[10px] tracking-[0.14em] text-ink-faint">{s.number}</span>
                   <span
-                    className={`font-serif text-[14px] italic ${s.id === current ? "text-accent" : "text-ink/85 group-hover:text-ink"}`}
+                    className={`font-sans text-[14px] ${s.id === current ? "text-accent" : "text-ink/85 group-hover:text-ink"}`}
                   >
                     {s.title}
                   </span>
                 </span>
-                <span className="font-mono text-[8px] uppercase tracking-[0.2em] text-ink-faint group-hover:text-accent/80">
+                <span className="font-mono text-[10px] uppercase tracking-[0.14em] text-ink-faint group-hover:text-accent/80">
                   {s.kind === "challenge" ? "challenge" : "sandbox"}
                 </span>
               </button>

@@ -20,6 +20,15 @@
  * miss: it continues to the database, and on success the key is stored for `ttl` seconds.
  * So the measured hit rate is the hit share minus whatever the TTL lets expire.
  *
+ * Workshop parts:
+ * - An API gateway is a front door: a fixed small cost, and round-robin across its links like a balancer.
+ * - A CDN is a cache at the edge. It uses the same read-through rule as Redis, with its own popular share.
+ * - A queue answers the caller as soon as the job is stored: the request succeeds there. The job then
+ *   travels on in the background to the least busy worker, which may wait up to JOB_MAX_WAIT_S. If the
+ *   queue already holds that much work (or QUEUE_LIMIT jobs with nobody consuming), it refuses new jobs.
+ *   Jobs left with no consumer are drained as soon as a worker is linked.
+ * - A replica with no primary to copy from (`detached`) has no data, so it refuses every request.
+ *
  * Faults (Break the System) are applied inside the model from a given sim time:
  * - spike: Users emit SPIKE_FACTOR × the set rate
  * - api-down / db-down: the target node rejects every request that reaches it
@@ -32,6 +41,7 @@ export type SimNode = {
   capacity?: number;
   hitShare?: number; // caches: share of requests for popular (cacheable) keys
   ttl?: number; // caches: seconds an entry lives
+  detached?: boolean; // a replica with no primary: it has nothing to answer with
 };
 export type SimEdge = { id: string; source: string; target: string };
 export type SimGraph = { nodes: SimNode[]; edges: SimEdge[] };
@@ -49,8 +59,14 @@ export type Fault = { kind: FaultKind; target: string | null; from: number; unti
 
 export const isFaultActive = (fault: Fault | null, time: number): fault is Fault =>
   !!fault && time >= fault.from && (fault.until === undefined || time < fault.until);
-const LATENCY_FLOOR_MS: Record<string, number> = { database: 6, loadbalancer: 1 }; // fixed work at non-queueing nodes
+const LATENCY_FLOOR_MS: Record<string, number> = { database: 6, loadbalancer: 1, gateway: 2 }; // fixed work at non-queueing nodes
 export const CACHE_MS = 0.5; // an in-memory lookup
+export const QUEUE_MS = 1; // storing a job
+export const JOB_MAX_WAIT_S = 20; // a queue holds up to this much waiting work before refusing jobs
+export const QUEUE_LIMIT = 400; // jobs a queue holds when nothing consumes them
+/** Redis and the CDN share the read-through behaviour. */
+export const isCache = (type: string) => type === "cache" || type === "cdn";
+const ROUND_ROBIN = new Set(["loadbalancer", "gateway"]);
 export const HOT_KEYS = 30;
 export const POP_S = 0.4; // the flash of a cache hit / store
 export const STORE_HOP_FACTOR = 0.6; // the store-back travels faster than a request
@@ -84,6 +100,16 @@ export type CacheStats = {
   missMs: number; // …and for misses (cache + database round)
 };
 
+export type QueueStats = {
+  depth: number; // jobs waiting: held with no consumer, plus work queued at its workers
+  inRate: number; // jobs/s arriving
+  outRate: number; // jobs/s its workers take
+  lagS: number; // how long a new job waits for a worker
+  full: boolean; // refused a job in the last second
+  fill: number; // 0–1: how close it is to refusing jobs
+  failed: number; // jobs/s that failed after being accepted
+};
+
 export type NodeLoad = {
   capacity: number;
   /** arrivals in the last second divided by capacity. Can exceed 1. */
@@ -102,6 +128,7 @@ export type Metrics = {
   arrivals: Record<string, number>; // node id → requests/s reaching it
   loads: Record<string, NodeLoad>;
   caches: Record<string, CacheStats>;
+  queues: Record<string, QueueStats>;
 };
 
 export const emptyMetrics: Metrics = {
@@ -114,6 +141,7 @@ export const emptyMetrics: Metrics = {
   arrivals: {},
   loads: {},
   caches: {},
+  queues: {},
 };
 
 type Sample = { t: number; ok: boolean; latencyMs: number };
@@ -133,6 +161,9 @@ export class Simulation {
   private cacheMs = new Map<string, { hit: number; miss: number }>(); // smoothed downstream latency
   private samples: Sample[] = [];
   private nodeArrivals: { t: number; node: string }[] = [];
+  private held = new Map<string, number>(); // queue id → jobs waiting with no consumer
+  private refusedAt = new Map<string, number>(); // queue id → last time it was full
+  private jobFailures: { t: number; node: string }[] = [];
   private total = 0;
   private errors = 0;
   private latencyEma = 0;
@@ -148,6 +179,9 @@ export class Simulation {
     this.cacheMs.clear();
     this.samples = [];
     this.nodeArrivals = [];
+    this.held.clear();
+    this.refusedAt.clear();
+    this.jobFailures = [];
     this.total = 0;
     this.errors = 0;
     this.latencyEma = 0;
@@ -170,6 +204,7 @@ export class Simulation {
       this.nextArrival = now;
     }
 
+    this.drainHeld(now, graph);
     this.advanceParticles(now, graph);
     this.trim(now);
   }
@@ -189,6 +224,7 @@ export class Simulation {
     let rejectAtHop: number | null = null;
     let hitAtHop: number | null = null;
     let miss: { cache: string; hop: number; key: string | null; startMs: number } | null = null;
+    let acceptedBy: string | null = null; // a queue took the job: the caller has its answer, the rest is background work
 
     for (let hop = 0; hop < route.length; hop++) {
       const target = nodes.get(edges.get(route[hop])!.target)!;
@@ -200,7 +236,32 @@ export class Simulation {
         break;
       }
 
-      if (target.type === "cache") {
+      if (target.detached) {
+        rejectAtHop = hop; // a replica that copies from nothing
+        break;
+      }
+
+      if (target.type === "queue") {
+        const next = hop + 1 < route.length ? nodes.get(edges.get(route[hop + 1])!.target) : undefined;
+        const held = this.held.get(target.id) ?? 0;
+        const full = next
+          ? !!next.capacity && (this.busyUntil.get(next.id) ?? 0) - t > JOB_MAX_WAIT_S
+          : held >= QUEUE_LIMIT;
+        if (full) {
+          this.refusedAt.set(target.id, t);
+          rejectAtHop = hop;
+          break;
+        }
+        if (!next) this.held.set(target.id, held + 1);
+        latencyMs += QUEUE_MS;
+        if (acceptedBy === null) {
+          acceptedBy = target.id;
+          this.record(t, true, latencyMs);
+        }
+        continue;
+      }
+
+      if (isCache(target.type)) {
         const startMs = latencyMs;
         latencyMs += CACHE_MS;
         const store = this.storeFor(target.id);
@@ -225,7 +286,7 @@ export class Simulation {
         const service = 1 / target.capacity;
         const busy = this.busyUntil.get(target.id) ?? 0;
         const wait = Math.max(0, busy - t);
-        if (wait > MAX_WAIT_S) {
+        if (wait > (acceptedBy ? JOB_MAX_WAIT_S : MAX_WAIT_S)) {
           rejectAtHop = hop;
           break;
         }
@@ -238,7 +299,9 @@ export class Simulation {
     }
 
     const ok = rejectAtHop === null;
-    this.record(t, ok, latencyMs);
+    // past a queue, a failure is a lost job, not a failed request: the caller was already answered
+    if (acceptedBy === null) this.record(t, ok, latencyMs);
+    else if (!ok) this.jobFailures.push({ t, node: acceptedBy });
 
     // a miss that reached the database brings the value back: store it for the next asker
     const stored = ok && miss !== null;
@@ -271,6 +334,26 @@ export class Simulation {
     this.samples.push({ t, ok, latencyMs });
     if (!ok) this.errors++;
     else this.latencyEma = this.latencyEma ? this.latencyEma * 0.94 + latencyMs * 0.06 : latencyMs;
+  }
+
+  /** Jobs that piled up with nobody consuming them go to a worker as soon as one is linked. */
+  private drainHeld(now: number, graph: SimGraph) {
+    for (const [queue, held] of this.held) {
+      if (!held) continue;
+      const workers = graph.edges
+        .filter((e) => e.source === queue)
+        .map((e) => graph.nodes.find((n) => n.id === e.target))
+        .filter((n): n is SimNode => !!n?.capacity);
+      let left = held;
+      for (const w of workers) {
+        // keep each worker about half a second ahead, so the backlog drains at the worker's pace
+        while (left > 0 && (this.busyUntil.get(w.id) ?? 0) - now < 0.5) {
+          this.busyUntil.set(w.id, Math.max(now, this.busyUntil.get(w.id) ?? 0) + 1 / w.capacity!);
+          left--;
+        }
+      }
+      this.held.set(queue, left);
+    }
   }
 
   private storeFor(cache: string) {
@@ -344,6 +427,7 @@ export class Simulation {
     while (this.samples.length && this.samples[0].t < now - 2) this.samples.shift();
     while (this.nodeArrivals.length && this.nodeArrivals[0].t < now - 1) this.nodeArrivals.shift();
     while (this.lookups.length && this.lookups[0].t < now - 2) this.lookups.shift();
+    while (this.jobFailures.length && this.jobFailures[0].t < now - 1) this.jobFailures.shift();
   }
 
   snapshot(graph: SimGraph): Metrics {
@@ -363,14 +447,15 @@ export class Simulation {
         capacity: n.capacity,
         load,
         queue: Math.round(backlog * n.capacity),
-        // a little margin so the alarm doesn't flicker while hovering right at 100%
-        overloaded: load >= 1.05 || backlog > MAX_WAIT_S * 0.8,
+        // a little margin so the alarm doesn't flicker while hovering right at 100%.
+        // A worker's backlog is the queue doing its job, so only arrivals beyond capacity count there.
+        overloaded: load >= 1.05 || (n.type !== "worker" && backlog > MAX_WAIT_S * 0.8),
       };
     }
 
     const caches: Record<string, CacheStats> = {};
     for (const n of graph.nodes) {
-      if (n.type !== "cache") continue;
+      if (!isCache(n.type)) continue;
       const mine = this.lookups.filter((l) => l.node === n.id);
       const hits = mine.filter((l) => l.hit).length;
       const ms = this.cacheMs.get(n.id);
@@ -384,6 +469,30 @@ export class Simulation {
       };
     }
 
+    const queues: Record<string, QueueStats> = {};
+    for (const n of graph.nodes) {
+      if (n.type !== "queue") continue;
+      const workers = graph.edges
+        .filter((e) => e.source === n.id)
+        .map((e) => graph.nodes.find((w) => w.id === e.target))
+        .filter((w): w is SimNode => !!w?.capacity);
+      const backlogs = workers.map((w) => Math.max(0, (this.busyUntil.get(w.id) ?? 0) - now));
+      const lagS = backlogs.length ? Math.min(...backlogs) : 0; // a new job goes to the least busy worker
+      const queued = workers.reduce((sum, w, i) => sum + backlogs[i] * w.capacity!, 0);
+      const inRate = arrivals[n.id] ?? 0;
+      const capacity = workers.reduce((sum, w) => sum + w.capacity!, 0);
+      queues[n.id] = {
+        depth: Math.round(queued + (this.held.get(n.id) ?? 0)),
+        inRate,
+        // with work waiting, the workers run flat out; otherwise they keep up with arrivals
+        outRate: !workers.length ? 0 : lagS > 0.05 ? capacity : Math.min(inRate, capacity),
+        lagS,
+        full: now - (this.refusedAt.get(n.id) ?? -Infinity) < 1,
+        fill: Math.min(1, Math.max(lagS / JOB_MAX_WAIT_S, (this.held.get(n.id) ?? 0) / QUEUE_LIMIT)),
+        failed: this.jobFailures.filter((f) => f.node === n.id).length,
+      };
+    }
+
     return {
       time: now,
       total: this.total,
@@ -394,10 +503,14 @@ export class Simulation {
       arrivals,
       loads,
       caches,
+      queues,
     };
   }
 
-  /** Walk outgoing links from Users: round-robin at load balancers, random at other forks. Cycles are cut off. */
+  /**
+   * Walk outgoing links from Users: round-robin at load balancers and gateways, the least busy worker
+   * at a queue (competing consumers), random at other forks. Cycles are cut off.
+   */
   private pickRoute(graph: SimGraph): string[] {
     const start = graph.nodes.find((n) => n.type === "users");
     if (!start) return [];
@@ -409,10 +522,13 @@ export class Simulation {
       const out = graph.edges.filter((e) => e.source === at && !seen.has(e.target));
       if (!out.length) return route;
       let next: SimEdge;
-      if (types.get(at) === "loadbalancer") {
+      if (ROUND_ROBIN.has(types.get(at) ?? "")) {
         const turn = this.rotation.get(at) ?? 0;
         this.rotation.set(at, turn + 1);
         next = out[turn % out.length];
+      } else if (types.get(at) === "queue") {
+        const busy = (e: SimEdge) => this.busyUntil.get(e.target) ?? 0;
+        next = out.reduce((a, b) => (busy(b) < busy(a) ? b : a));
       } else {
         next = out[Math.floor(Math.random() * out.length)];
       }

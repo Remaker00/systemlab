@@ -13,7 +13,17 @@ export type LabNodeData = {
   ttl?: number;
 };
 
-export type LabNodeType = "users" | "api" | "database" | "loadbalancer" | "cache";
+export type LabNodeType =
+  | "users"
+  | "api"
+  | "database"
+  | "loadbalancer"
+  | "cache"
+  | "gateway"
+  | "cdn"
+  | "queue"
+  | "worker"
+  | "replica";
 
 export type LabNode = Node<LabNodeData, LabNodeType>;
 
@@ -23,6 +33,10 @@ export type LabEdgeData = {
   drawDelay?: number;
 };
 
+/** A primary feeding a replica copies data along the link; requests never travel it. */
+export const isReplication = (source?: LabNodeType, target?: LabNodeType) =>
+  source === "database" && target === "replica";
+
 export type LabEdge = Edge<LabEdgeData, "sketch">;
 
 /** requests/s a new API server can serve */
@@ -30,6 +44,11 @@ export const DEFAULT_CAPACITY = 40;
 /** a new cache: share of requests for popular keys, and entry lifetime in seconds */
 export const DEFAULT_HIT_SHARE = 0.8;
 export const DEFAULT_TTL = 10;
+/** workshop parts: a worker, a database (and its replicas), and a CDN's share of static, cacheable requests */
+export const WORKER_CAPACITY = 20;
+export const DB_CAPACITY = 60;
+export const CDN_HIT_SHARE = 0.5;
+export const CDN_TTL = 60;
 
 /*
  * Positions are deliberately not on a straight line: a slight drift makes the
@@ -85,6 +104,23 @@ const LINK_LABELS: Partial<Record<`${LabNodeType}>${LabNodeType}`, string>> = {
   "loadbalancer>api": "http · forward",
   "api>cache": "get · key",
   "cache>database": "on miss · read",
+  "users>cdn": "https · assets",
+  "users>gateway": "https · request",
+  "cdn>gateway": "on miss · origin",
+  "cdn>loadbalancer": "on miss · origin",
+  "cdn>api": "on miss · origin",
+  "gateway>api": "route · /api",
+  "gateway>loadbalancer": "route · forward",
+  "loadbalancer>gateway": "http · forward",
+  "api>queue": "publish · job",
+  "api>replica": "sql · read",
+  "queue>worker": "consume · job",
+  "worker>database": "sql · write",
+  "worker>cache": "set · key",
+  "worker>replica": "sql · read",
+  "worker>queue": "publish · job",
+  "cache>replica": "on miss · read",
+  "database>replica": "async · replicate",
 };
 
 export function linkLabel(source?: LabNodeType, target?: LabNodeType): string {
@@ -102,46 +138,33 @@ export const DEFAULT_TRAFFIC = 20;
 export const HIT_SHARE_STEPS = [0, 0.5, 0.7, 0.8, 0.9, 0.95, 0.99] as const;
 export const TTL_STEPS = [1, 2, 5, 10, 30, 60] as const;
 
-/** Components the user can add to the sheet. The original three are fixed; these are removable. */
-export type AddableType = Extract<LabNodeType, "loadbalancer" | "api" | "cache">;
+/** Components the user can add to a sheet. Users are fixed; everything added is removable. */
+export type AddableType = Exclude<LabNodeType, "users">;
 
-/** Build a new node with the next drawing index. Titles count per type ("API Server 2"). */
+/** What each new part is called and how it starts out. Titles count per type ("Worker 2"). */
+const PARTS: Record<AddableType, { title: string; numbered?: boolean; meta: string; data?: Partial<LabNodeData> }> = {
+  api: { title: "API Server", numbered: true, meta: "compute · stateless", data: { capacity: DEFAULT_CAPACITY } },
+  loadbalancer: { title: "Load Balancer", meta: "routing · round-robin" },
+  cache: { title: "Redis", meta: "cache · in-memory", data: { hitShare: DEFAULT_HIT_SHARE, ttl: DEFAULT_TTL } },
+  gateway: { title: "API Gateway", meta: "edge · one front door" },
+  cdn: { title: "CDN", meta: "edge · cached assets", data: { hitShare: CDN_HIT_SHARE, ttl: CDN_TTL } },
+  queue: { title: "Queue", meta: "async · buffer" },
+  worker: { title: "Worker", meta: "compute · background", data: { capacity: WORKER_CAPACITY } },
+  database: { title: "Database", meta: "storage · primary", data: { capacity: DB_CAPACITY } },
+  replica: { title: "Read Replica", meta: "storage · read-only", data: { capacity: DB_CAPACITY } },
+};
+
+/** Build a new node with the next drawing index. */
 export function createNode(type: AddableType, existing: LabNode[], position: { x: number; y: number }): LabNode {
   const nextIndex = Math.max(0, ...existing.map((n) => Number(n.data.index) || 0)) + 1;
   const sameType = existing.filter((n) => n.type === type).length;
-  const index = String(nextIndex).padStart(2, "0");
-  const id = `${type}-${Date.now().toString(36)}`;
-
-  if (type === "cache") {
-    return {
-      id,
-      type,
-      position,
-      data: {
-        index,
-        title: sameType ? `Redis ${sameType + 1}` : "Redis",
-        meta: "cache · in-memory",
-        hitShare: DEFAULT_HIT_SHARE,
-        ttl: DEFAULT_TTL,
-      },
-    };
-  }
-  if (type === "loadbalancer") {
-    return {
-      id,
-      type,
-      position,
-      data: {
-        index,
-        title: sameType ? `Load Balancer ${sameType + 1}` : "Load Balancer",
-        meta: "routing · round-robin",
-      },
-    };
-  }
+  const part = PARTS[type];
+  // the sandbox's first server is "API Server", so added ones count on from 2; other parts are numbered from their second
+  const title = part.numbered || sameType ? `${part.title} ${sameType + 1}` : part.title;
   return {
-    id,
+    id: `${type}-${Date.now().toString(36)}`,
     type,
     position,
-    data: { index, title: `API Server ${sameType + 1}`, meta: "compute · stateless", capacity: DEFAULT_CAPACITY },
+    data: { index: String(nextIndex).padStart(2, "0"), title, meta: part.meta, ...part.data },
   };
 }

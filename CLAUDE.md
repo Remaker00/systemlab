@@ -19,7 +19,9 @@ React Flow (`@xyflow/react` v12) · Framer Motion v14
 
 ## Layout
 ```
-src/app/layout.tsx          fonts (Instrument Serif + JetBrains Mono), RF stylesheet
+src/app/layout.tsx          fonts (Inter + JetBrains Mono), site metadata/SEO, RF stylesheet
+src/app/about/page.tsx      static About page (reads catalog.ts)
+src/app/robots.ts, sitemap.ts  SEO routes (URL from src/lib/site.ts)
 src/app/globals.css         palette tokens, paper grain/vignette, React Flow overrides
 src/lib/graph.ts            node/edge types, initial graph (Users → API → Database), linkLabel/edgeId, createNode
 src/lib/catalog.ts          per-node-type reference copy for the focus annotation
@@ -28,22 +30,27 @@ src/lib/sim/useSimulation.ts rAF driver: steps while running, publishes metrics 
 src/lib/sim/ledger.ts       measured per-pool-size comparison rows (settle-gated, interrupted by faults)
 src/lib/sim/history.ts      trail of system snapshots for before/after reads
 src/lib/experiments.ts      Break-the-System scenarios (copy), Experiment type, stage timing
-src/lib/challenge.ts        sheets (01 sandbox, 02 surge), challenge constants/scale, trial phases, scoreTrial
+src/lib/challenge.ts        sheets (01 sandbox, 02 surge, 03 workshop), challenge constants/scale, trial phases, scoreTrial
+src/lib/workshop.ts         workshop review: link rule table, missing connections, planned loads → ceiling/bottleneck
+src/lib/designs.ts          saved workshop designs in localStorage (guarded list/save/delete/open)
 src/components/canvas/
   SystemCanvas.tsx          ReactFlow host, connect/validate, focus + reveal-pan, add components, title block,
                             comparison table, run/reset
-  CanvasControls.tsx        bottom strip: Run/Pause, Reset, Traffic, + Add / Break drawers (Restore while broken), zoom
+  CanvasControls.tsx        bottom strip: Run/Pause, Reset, Traffic, + Add (drag parts out) / Break drawers
+                            (Restore while broken), Designs (workshop), zoom
   ParticleLayer.tsx         imperative SVG particles on edge paths (ViewportPortal)
   ExperimentNote.tsx        the 4-beat experiment note pinned above the broken node (ViewportPortal)
   ChallengeNote.tsx         challenge brief / trial log / score, pinned left of Users (ViewportPortal)
-  LabContext.tsx            { running, focusedId, litNodes, litEdges, metrics, traffic, fault, scale, locked }
+  WorkshopNote.tsx          workshop review note pinned left of Users; lines focus their part (ViewportPortal)
+  LabContext.tsx            { running, focusedId, litNodes, litEdges, metrics, traffic, fault, scale, locked, workshop, review }
                             + useDimmed(), useIsDown(), useScaled() (format every rate/count with the sheet's scale)
   SketchDefs.tsx            global SVG filters: #sl-sketch (ink wobble), #sl-glow
-  nodes/NodeFrame.tsx       shared node shell (corners, coords, title block, handles) + <Ink> draw-in path
+  nodes/NodeFrame.tsx       shared node shell (corners, coords, title block, handles, review marks: "?" leads,
+                            bottleneck tag) + <Ink> draw-in path
   nodes/FocusNote.tsx       leader-line callout under the focused node; StepperRow for capacity / hit rate / ttl;
                             LB pool comparison; live CacheInsight sentence
   nodes/Readout.tsx         live metric annotation + load gauge beside a glyph
-  nodes/glyphs.tsx          UsersNode, ApiNode, DatabaseNode, LoadBalancerNode, CacheNode (120×120 SVG glyphs)
+  nodes/glyphs.tsx          Users, Api, Database, LoadBalancer, Cache, Gateway, Cdn, Queue, Worker, Replica (120×120 SVG glyphs)
   edges/SketchEdge.tsx      dual-stroke bezier edge, running packets, focus dimming, cut mark
   edges/ConnectionLine.tsx  in-progress link while dragging from a handle
 ```
@@ -52,12 +59,14 @@ src/components/canvas/
 - Artist's/architect's canvas, **not** a SaaS dashboard. No sidebar, no KPI cards, no purple/blue gradients.
 - Charcoal paper `--paper`, bone ink `--ink*`, one accent `--accent` (sodium amber). The accent means *life*
   (running, selection) and is never used as decoration. `--fault` (oxidised red) means *failure* only.
-- Thin strokes (~0.9px), tiny uppercase mono labels with wide tracking, serif italic for names.
+- Thin strokes (~0.9px), small uppercase mono labels (≥9px, ~0.15em tracking), Inter upright for names and prose.
+  Text must stay readable at 100% zoom (see D53).
 - Drafting vocabulary: solid strokes for visible edges, dotted faint strokes for hidden edges.
 - Lots of negative space; chrome stays minimal and hairline.
 - New node types: add a glyph in `glyphs.tsx` that uses `<NodeFrame node={props}>` + `Ink`, register it in
   `SystemCanvas.tsx` `nodeTypes`, add the type to `LabNodeType` in `graph.ts`, and add an entry in `catalog.ts`.
-  If users can add it: extend `AddableType` + `createNode` and the `ADDABLE` list in CanvasControls.
+  If users can add it: add it to `PARTS` in graph.ts (title/meta/data) and in CanvasControls, to `ADDABLE_ALL` in
+  SystemCanvas, and to the workshop rule table (`ALLOWED`) in workshop.ts.
 
 ## Gotchas
 - Don't animate `transform`/`y` on the node root at mount, because React Flow measures handle positions

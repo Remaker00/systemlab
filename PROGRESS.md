@@ -1,6 +1,6 @@
 # Progress
 
-## Status: Part 7 complete (2026-10-06). Waiting for the user to start Part 8.
+## Status: Part 8 complete (2026-10-06). Waiting for the user to start Part 9.
 
 ### Part 1: Visual foundation ✅
 - [x] Next.js + TS + Tailwind v4 + React Flow + Framer Motion scaffold
@@ -129,7 +129,68 @@
       LB+4+Redis 96; LB+5+Redis 100; LB+3+Redis 61. In-browser: the same arc via the UI (0 → 0 → 0 → 100), slot-in link counts
       exact, sheets keep drawings. Part 2–6 regression flows pass. No console errors. tsc, lint and build clean.
 
+### Part 8: The Architecture Workshop ✅
+- [x] Sheet 03 "Workshop" (sheet switcher): starts with only Users. Everything else is built from scratch.
+- [x] Drag-and-drop: parts are dragged out of the + Add drawer onto the sheet. The drawer steps aside once the pointer moves,
+      an amber-cornered ghost follows the pointer, and the part lands centred under it (a click still places it in free space).
+      Dragging works on every sheet. The sandbox and challenge drawers still list only their three parts.
+- [x] Nine parts in the workshop drawer, grouped Edge / Compute / Data: CDN, API gateway, load balancer, API server, queue, worker,
+      Redis, database, read replica. New glyphs: gateway (arch with a boom that lifts while traffic passes), CDN (wire globe whose
+      edge locations light with the hit rate), queue (tray of slots that fill as it nears full), worker (gear that turns while
+      busy), replica (the cylinder traced in dashes, with a sync arrow). Catalog notes for each.
+- [x] Engine: gateway = round-robin + 2ms; CDN = read-through cache (default 50% static, TTL 60s); queue answers the caller on
+      accept, then sends the job to the least busy worker (up to 20s of waiting work, or 400 jobs with no consumer, then it refuses);
+      jobs held with no consumer drain once a worker is linked; failures past a queue are lost jobs, not request errors.
+      Database/replica have capacity 60/s. A replica with no primary refuses requests. The primary → replica link is replication:
+      drawn dotted, never routed. In the workshop a database gets a source handle for it.
+- [x] Readouts: gateway in/s; CDN hit/origin/speed/ttl; queue depth/in/out/wait (or full) and lost jobs; worker load/queue/cap/health;
+      replica in/cap/health. Live focus-note sentences for the CDN and the queue.
+- [x] Validation (`src/lib/workshop.ts`, recomputed on every change):
+      wrong links: a rule table of what may link to what. A wrong link is still drawn (and simulated) but in red dashes, labelled
+      "✕ <reason>" (e.g. users → database "no server between"), with the full reason in the review.
+      Missing connections: per part (no way in, unreachable from Users, API with no data behind it, queue with no worker, cache
+      with no storage, replica with no primary or no reader, …), drawn as a red dashed lead off the handle ending in "?".
+      Bottlenecks: planned arrivals per part, following the engine's routing (equal forks, capacity-weighted at a queue, misses
+      past caches), giving load at the set traffic, the ceiling (the traffic at which the first part saturates) and the part
+      that gives first ("◆ bottleneck · 167%" under its title; others past 100% say "over capacity").
+- [x] Review note pinned left of Users: a summary sentence, "holds up to about N/s · first to give X", and sections (wrong links,
+      missing, under load, on the sheet). Clicking a line focuses that part or selects that link.
+- [x] Save/reopen: "Designs" in the strip (workshop only): save under a name (same name replaces), list with part count and age,
+      open, delete (asks "delete?" first). Stored in localStorage (`systemlab.designs.v1`), with every access guarded.
+      Reset on the workshop clears it to a blank sheet (changed in D55; it used to return to the last saved design). The review shows the design's name.
+- [x] Database-failure copy now accounts for replicas and queues (reads keep flowing from the replica; jobs fail out of sight).
+      The sandbox wording is unchanged.
+- [x] Verified: engine numerically (gateway split 25/24; DB wall at 70/s → 132% / 23% errors; replica takes ~44% of reads;
+      detached replica → its share fails; CDN 53% hit halves API load; queue: 2 workers keep up, 1 worker → backlog → full at ~20s
+      → refuses; no worker → full at 400; held jobs drain once linked); review outputs for blank / wrong / sound / overloaded designs.
+      In-browser: drag 5 parts onto the sheet → link 6 (one wrong on purpose) → red link + reason, ? leads, ceiling 60/s, DB
+      "bottleneck 167%" when run at 100/s → save → reload → reopen (6 parts, 6 links) → reset returns to it; full 8-part chain
+      runs clean at 40/s ("It holds together"); database failure on it reads honestly (0% errors, lost 14/s at the queue).
+      Regression: sandbox drawer still 3 items, DB 1 handle; challenge slot-in counts exact (3/2 → 4/4 → 5/5 → 6/6).
+      No console errors. tsc, lint and build clean.
+
+### Polish: readability, sheet switcher, About page, SEO ✅ (2026-10-06)
+- [x] Readability: text tones split from stroke tones (`--text-soft` 0.78, `--text-faint` 0.56; strokes unchanged).
+      Tiny labels enlarged (7–8.5px → 9–10.5px, 9px → 11px), wide tracking tightened (0.2–0.3em → 0.14–0.16em),
+      `/50`–`/70` faded text removed.
+- [x] Font: Instrument Serif italic replaced by Inter (upright) for names and prose (`font-sans`); JetBrains Mono kept for labels.
+- [x] Sheet switcher is now a bordered button (Sheet 03 · Workshop ▾) with hover/open states; menu marks the current sheet
+      with an accent bar and sits above the hint line (z-20).
+- [x] Readout: tighter rows and wider label column so "HEALTH OK" doesn't run together; anchored a bit lower so it
+      clears the coordinate mark.
+- [x] `/about` page (static): what it is, Build/Run/Break, the three sheets, the nine parts (from `catalog.ts`), who it's for.
+      "About →" link under the tagline on the canvas.
+- [x] SEO: title template, description, keywords, canonical, Open Graph/Twitter, theme colour, `robots.ts`, `sitemap.ts`,
+      WebApplication JSON-LD on /about. Set `NEXT_PUBLIC_SITE_URL` in production (`src/lib/site.ts`).
+- [x] Verified in the browser (desktop + 390px About with no horizontal overflow, no console errors); tsc, lint, build clean.
+
 ### Known limitations / notes
+- No Open Graph image yet (social cards show text only).
+- Workshop: readouts and link labels collide when parts sit close in a horizontal chain (same cause as D19's readout placement).
+- Workshop: the planned load assumes the cache dial's full hit rate; short TTLs make the measured load higher than planned.
+- Workshop: requests are all one kind (reads), so "writes through a queue, reads from a replica" is modelled by where links go,
+  not by request type. Replicas copy instantly (no replication lag is simulated).
+- Workshop: Break scenarios still target only API servers and databases. Designs live in one browser only (no export).
 - A pool of 5+ servers stacks tall, so fit-to-view zooms the sheet out a lot.
 - Slot-in only knows the three standard lines (users→api, api→database, pool siblings). Unusual drawings are left alone.
 - With Redis above, the API → Redis link rises through the API's readout (readouts always sit above-right of a glyph).
@@ -148,4 +209,4 @@
 - React Flow attribution is kept and styled very faint.
 
 ### Next (do not start until the user asks)
-- Part 8: TBD by the user.
+- Part 9: TBD by the user.

@@ -50,10 +50,10 @@ export function ChallengeNote({ anchor, trial, result, attempts, now, onStart, o
           animate={{ opacity: 1 }}
           transition={{ duration: 0.8, delay: 0.6 }}
         >
-          <div className="flex flex-col gap-4 border-r border-accent/30 bg-gradient-to-l from-[#0c0c0b]/95 via-[#0c0c0b]/92 to-[#0c0c0b]/80 py-1 pr-4 text-right font-mono text-[9px] leading-relaxed tracking-[0.04em]">
-            <div className="text-[8px] uppercase tracking-[0.26em] text-accent">Challenge 01 · The surge</div>
+          <div className="flex flex-col gap-4 border-r border-accent/30 bg-gradient-to-l from-[#0c0c0b]/95 via-[#0c0c0b]/92 to-[#0c0c0b]/80 py-1 pr-4 text-right font-mono text-[11px] leading-relaxed tracking-[0.04em]">
+            <div className="text-[10px] uppercase tracking-[0.16em] text-accent">Challenge 01 · The surge</div>
 
-            <p className="font-serif text-[17px] leading-snug text-ink normal-case italic tracking-normal">
+            <p className="font-sans text-[15px] leading-snug text-ink normal-case tracking-normal">
               Your application handles 1,000 requests a second. Tonight, without warning, it&rsquo;s 10,000.
             </p>
 
@@ -77,7 +77,7 @@ export function ChallengeNote({ anchor, trial, result, attempts, now, onStart, o
                     const active = phase?.key === p.key;
                     return (
                       <div key={p.key} className="flex flex-col gap-1">
-                        <span className={active ? "text-ink" : k >= 1 ? "text-ink-soft" : "text-ink-faint/60"}>
+                        <span className={active ? "text-ink" : k >= 1 ? "text-ink-soft" : "text-ink-faint"}>
                           {p.label}
                         </span>
                         <div className="relative ml-auto h-px w-full bg-white/[0.06]">
@@ -92,7 +92,7 @@ export function ChallengeNote({ anchor, trial, result, attempts, now, onStart, o
                   })}
                   <button
                     onClick={onStop}
-                    className="pointer-events-auto mt-1 cursor-pointer self-end text-[8px] uppercase tracking-[0.26em] text-ink-faint transition-colors hover:text-ink-soft"
+                    className="pointer-events-auto mt-1 cursor-pointer self-end text-[10px] uppercase tracking-[0.16em] text-ink-faint transition-colors hover:text-ink-soft"
                   >
                     stop the trial
                   </button>
@@ -100,11 +100,11 @@ export function ChallengeNote({ anchor, trial, result, attempts, now, onStart, o
               ) : result ? (
                 <motion.div key={`result-${trial?.attempt}`} {...reveal} className="flex flex-col gap-3">
                   <div className="flex items-baseline justify-end gap-3">
-                    <span className="font-serif text-[15px] text-ink/85 normal-case italic tracking-normal">
+                    <span className="font-sans text-[15px] text-ink/85 normal-case tracking-normal">
                       {result.verdict}
                     </span>
                     <motion.span
-                      className="font-serif text-[44px] leading-none text-ink tabular-nums"
+                      className="font-sans text-[44px] leading-none text-ink tabular-nums"
                       initial={{ opacity: 0, scale: 0.9 }}
                       animate={{ opacity: 1, scale: 1 }}
                       transition={{ duration: 0.8, ease: EASE, delay: 0.2 }}
@@ -122,12 +122,12 @@ export function ChallengeNote({ anchor, trial, result, attempts, now, onStart, o
                     >
                       <div className="flex items-center justify-end gap-2">
                         <span className="text-ink-faint">{c.figure}</span>
-                        <span className="text-[8px] uppercase tracking-[0.22em] text-ink-soft">{c.label}</span>
+                        <span className="text-[10px] uppercase tracking-[0.14em] text-ink-soft">{c.label}</span>
                         <Pips score={c.score} />
                       </div>
                       <p className="text-ink-soft">{c.why}</p>
                       {c.score < 20 && (
-                        <p className="font-serif text-[13px] leading-snug text-accent/90 normal-case italic tracking-normal">
+                        <p className="font-sans text-[13px] leading-snug text-accent/90 normal-case tracking-normal">
                           {c.question}
                         </p>
                       )}
@@ -150,7 +150,7 @@ export function ChallengeNote({ anchor, trial, result, attempts, now, onStart, o
                 )}
                 <button
                   onClick={onStart}
-                  className="group pointer-events-auto flex cursor-pointer items-center gap-2 text-[9px] uppercase tracking-[0.26em] text-accent transition-colors hover:text-ink"
+                  className="group pointer-events-auto flex cursor-pointer items-center gap-2 text-[11px] uppercase tracking-[0.16em] text-accent transition-colors hover:text-ink"
                 >
                   {result ? "Change something, try again" : "Put it on trial"}
                   <span className="h-px w-4 bg-accent transition-all duration-300 group-hover:w-8" />
@@ -165,7 +165,7 @@ export function ChallengeNote({ anchor, trial, result, attempts, now, onStart, o
 }
 
 function Label({ children }: { children: React.ReactNode }) {
-  return <span className="text-[8px] uppercase tracking-[0.26em] text-ink-faint">{children}</span>;
+  return <span className="text-[10px] uppercase tracking-[0.16em] text-ink-faint">{children}</span>;
 }
 
 function Fact({ name, value }: { name: string; value: string }) {

@@ -74,18 +74,18 @@ export function FocusNote({ nodeId, type, index }: Props) {
       <span className="absolute -left-[2.5px] -top-[2.5px] h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_6px_var(--accent-glow)]" />
 
       <div className="flex flex-col gap-2.5 bg-gradient-to-r from-[#0c0c0b]/95 via-[#0c0c0b]/92 to-[#0c0c0b]/80 py-1 pl-4">
-        <motion.div variants={row} className="font-mono text-[8px] uppercase tracking-[0.26em] text-accent/80">
+        <motion.div variants={row} className="font-mono text-[10px] uppercase tracking-[0.16em] text-accent/80">
           N°{index} — {spec.role}
         </motion.div>
 
-        <motion.p variants={row} className="font-serif text-[13.5px] leading-snug text-ink/85 italic">
+        <motion.p variants={row} className="font-sans text-[13.5px] leading-snug text-ink/85">
           {spec.summary}
         </motion.p>
 
         {spec.why && (
           <motion.div variants={row} className="flex flex-col gap-1">
-            <span className="font-mono text-[8px] uppercase tracking-[0.26em] text-ink-faint">Why it exists</span>
-            <p className="font-mono text-[9px] leading-relaxed tracking-[0.04em] text-ink-soft">{spec.why}</p>
+            <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint">Why it exists</span>
+            <p className="font-mono text-[11px] leading-relaxed tracking-[0.04em] text-ink-soft">{spec.why}</p>
           </motion.div>
         )}
 
@@ -101,7 +101,19 @@ export function FocusNote({ nodeId, type, index }: Props) {
           </motion.div>
         )}
 
-        <motion.dl variants={row} className="flex flex-col gap-1 font-mono text-[9px] tracking-[0.08em]">
+        {type === "cdn" && (
+          <motion.div variants={row}>
+            <CdnInsight nodeId={nodeId} />
+          </motion.div>
+        )}
+
+        {type === "queue" && (
+          <motion.div variants={row}>
+            <QueueInsight nodeId={nodeId} />
+          </motion.div>
+        )}
+
+        <motion.dl variants={row} className="flex flex-col gap-1 font-mono text-[11px] tracking-[0.08em]">
           {spec.properties.map(([label, value]) => (
             <div key={label} className="flex items-baseline gap-2">
               <dt className="text-ink-faint">{label}</dt>
@@ -115,12 +127,12 @@ export function FocusNote({ nodeId, type, index }: Props) {
           })}
         </motion.dl>
 
-        <motion.div variants={row} className="flex flex-col gap-1 font-mono text-[9px] tracking-[0.08em]">
+        <motion.div variants={row} className="flex flex-col gap-1 font-mono text-[11px] tracking-[0.08em]">
           <LinkRow direction="in" names={links.inbound} />
           <LinkRow direction="out" names={links.outbound} />
         </motion.div>
 
-        <motion.div variants={row} className="flex gap-2 pt-0.5 font-mono text-[8.5px] leading-relaxed tracking-[0.06em] text-ink-faint">
+        <motion.div variants={row} className="flex gap-2 pt-0.5 font-mono text-[10.5px] leading-relaxed tracking-[0.06em] text-ink-faint">
           <span className="text-accent/70">△</span>
           <span>{spec.fragility}</span>
         </motion.div>
@@ -221,15 +233,67 @@ function CacheInsight({ nodeId }: { nodeId: string }) {
   } else {
     line = `${Math.round(stats.hitRate * 100)}% of reads never reach the database. Raise the hit rate and watch the database link go quiet.`;
   }
+  return <Insight line={line} setup={setup} />;
+}
+
+/** One live sentence, styled as a setup hint (amber rule) or as a reading of what's on screen. */
+function Insight({ line, setup }: { line: string; setup: boolean }) {
   return (
     <p
-      className={`border-l pl-2 font-mono text-[8.5px] leading-relaxed tracking-[0.06em] ${
+      className={`border-l pl-2 font-mono text-[10.5px] leading-relaxed tracking-[0.06em] ${
         setup ? "border-accent/30 text-accent/80" : "border-white/10 text-ink-soft"
       }`}
     >
       {line}
     </p>
   );
+}
+
+function CdnInsight({ nodeId }: { nodeId: string }) {
+  const { metrics, running } = useLab();
+  const edges = useEdges<LabEdge>();
+  const nodes = useNodes<LabNode>();
+  const type = (id: string) => nodes.find((n) => n.id === id)?.type;
+  const fromUsers = edges.some((e) => e.target === nodeId && type(e.source) === "users");
+  const origin = edges.some((e) => e.source === nodeId);
+  const stats = metrics.caches[nodeId];
+
+  if (!fromUsers || !origin)
+    return <Insight setup line="Put it first in line: Users → CDN → your front door (gateway, balancer or server). Cut Users' other links so every request asks the edge first." />;
+  if (!running || !stats || stats.lookups === 0)
+    return <Insight setup={false} line="Run it: flashes at the CDN are requests answered at the edge. Only the misses travel on to your servers." />;
+  return (
+    <Insight
+      setup={false}
+      line={`${Math.round(stats.hitRate * 100)}% of requests never reach your servers. Raise the hit rate to see how much of the load was static all along.`}
+    />
+  );
+}
+
+function QueueInsight({ nodeId }: { nodeId: string }) {
+  const { metrics, running } = useLab();
+  const scaled = useScaled();
+  const edges = useEdges<LabEdge>();
+  const nodes = useNodes<LabNode>();
+  const type = (id: string) => nodes.find((n) => n.id === id)?.type;
+  const workers = edges.filter((e) => e.source === nodeId && type(e.target) === "worker").length;
+  const fed = edges.some((e) => e.target === nodeId);
+  const stats = metrics.queues[nodeId];
+
+  if (!fed || !workers)
+    return <Insight setup line="Publish to it from an API server, and link it to one or more workers. The caller is answered when the job is stored, not when it's done." />;
+  if (!running || !stats || stats.inRate === 0)
+    return <Insight setup={false} line="Run it: requests finish here, fast. The jobs wait in the tray until a worker is free." />;
+  if (stats.full)
+    return <Insight setup={false} line="Full: it holds as much work as it can, so new jobs are refused. Add workers, or make each one faster." />;
+  if (stats.inRate > stats.outRate * 1.05)
+    return (
+      <Insight
+        setup={false}
+        line={`Jobs arrive at ${scaled.rate(stats.inRate)} and leave at ${scaled.rate(stats.outRate)}. The backlog grows, and every job waits longer than the last.`}
+      />
+    );
+  return <Insight setup={false} line={`Workers keep up: jobs wait ${stats.lagS < 0.05 ? "no time at all" : `${stats.lagS.toFixed(1)}s`}, and callers never feel the slow part.`} />;
 }
 
 /**
@@ -250,7 +314,7 @@ function PoolComparison({ nodeId }: { nodeId: string }) {
 
   if (!pool.length || !fedByUsers) {
     return (
-      <p className="border-l border-accent/30 pl-2 font-mono text-[8.5px] leading-relaxed tracking-[0.06em] text-accent/80">
+      <p className="border-l border-accent/30 pl-2 font-mono text-[10.5px] leading-relaxed tracking-[0.06em] text-accent/80">
         Route Users → Load Balancer, then link it to each API server. Cut the direct Users → API link so every
         request passes through here.
       </p>
@@ -262,8 +326,8 @@ function PoolComparison({ nodeId }: { nodeId: string }) {
     { label: `${pool.length} servers`, capacity: pool.reduce((a, b) => a + b, 0) },
   ];
   return (
-    <div className="flex flex-col gap-1.5 font-mono text-[9px] tracking-[0.08em]">
-      <span className="text-[8px] uppercase tracking-[0.26em] text-ink-faint">At {scaled.rate(traffic)}</span>
+    <div className="flex flex-col gap-1.5 font-mono text-[11px] tracking-[0.08em]">
+      <span className="text-[10px] uppercase tracking-[0.16em] text-ink-faint">At {scaled.rate(traffic)}</span>
       {rows.map(({ label, capacity }) => {
         const load = traffic / capacity;
         const tone = load >= 1 ? "text-fault" : load >= 0.75 ? "text-accent" : "text-ink-soft";
@@ -285,7 +349,7 @@ function LinkRow({ direction, names }: { direction: "in" | "out"; names: string[
     <div className="flex gap-2">
       <span className="w-6 text-ink-faint uppercase">{direction}</span>
       <span className="text-ink-faint">{direction === "in" ? "←" : "→"}</span>
-      <span className={names.length ? "text-ink-soft" : "text-ink-faint/60"}>
+      <span className={names.length ? "text-ink-soft" : "text-ink-faint"}>
         {names.length ? names.join(", ") : "nothing"}
       </span>
     </div>

@@ -11,6 +11,12 @@ export type SystemShape = {
   servers: number; // API servers that receive traffic
   balanced: boolean; // a load balancer feeds them
   cached: boolean; // a cache sits in front of the database
+  /** workshop: reads are served by a replica that copies the database */
+  replicated?: boolean;
+  /** workshop: writes reach the database from workers, behind a queue */
+  queued?: boolean;
+  /** something other than a worker queries the database directly */
+  direct?: boolean;
 };
 
 export type Scenario = {
@@ -92,12 +98,24 @@ export const scenarios: Scenario[] = [
     tag: "primary goes dark",
     anchor: "database",
     change: () => "The database stops answering. The API servers are fine.",
-    consequence: ({ servers, cached }) =>
-      cached
-        ? "Redis still answers hits, for now. Misses die at the database, so nothing is refreshed: as entries expire, the hits run out too."
-        : servers > 1
-          ? `All ${servers} API servers still take requests, but every one dies at the database.`
-          : "The API server still takes requests, but every one of them dies at the database.",
+    consequence: ({ servers, cached, replicated, queued, direct = true }) => {
+      // when some traffic avoids the primary (workshop replicas and queues), "every one" isn't true any more
+      const some = replicated || queued ? " that needs it" : "";
+      const parts = [
+        !direct
+          ? null
+          : cached
+            ? "Redis still answers hits, for now. Misses die at the database, so nothing is refreshed: as entries expire, the hits run out too."
+            : servers > 1
+              ? `All ${servers} API servers still take requests, but every one${some} dies at the database.`
+              : `The API server still takes requests, but every one of them${some} dies at the database.`,
+        replicated ? "Reads keep flowing from the replica, which still holds its last copy." : null,
+        queued
+          ? "Callers are still answered at the queue, but every job a worker carries to the database now fails, out of their sight."
+          : null,
+      ];
+      return parts.filter(Boolean).join(" ");
+    },
     question: "What would you change?",
     options: [
       {

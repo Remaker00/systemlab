@@ -13,11 +13,11 @@ const TONE = { accent: "text-accent", fault: "text-fault" } as const;
 /** A margin annotation of live figures, set in the same tiny mono as the rest of the sheet. */
 export function Readout({ lines, load }: { lines: ReadoutLine[]; load?: number }) {
   return (
-    <div className="flex flex-col gap-[3px] font-mono text-[8px] uppercase tracking-[0.16em]">
+    <div className="flex flex-col font-mono text-[10px] uppercase leading-[1.3] tracking-[0.08em]">
       {load !== undefined && <LoadGauge load={load} />}
       {lines.map(({ label, value, tone }) => (
         <div key={label} className="flex gap-2">
-          <span className="w-9 text-ink-faint">{label}</span>
+          <span className="w-11 shrink-0 text-ink-faint">{label}</span>
           <span className={`tabular-nums ${tone ? TONE[tone] : "text-ink-soft"}`}>{value}</span>
         </div>
       ))}

@@ -63,7 +63,7 @@ export function ExperimentNote({ experiment, anchor, now, history, shape, onChoo
           transition={{ duration: 0.5 }}
         >
           <div className="flex flex-col gap-3 border-r border-fault/40 bg-gradient-to-l from-[#0c0c0b]/95 via-[#0c0c0b]/92 to-[#0c0c0b]/80 py-1 pr-4 text-right">
-            <div className="font-mono text-[8px] uppercase tracking-[0.26em] text-fault">
+            <div className="font-mono text-[10px] uppercase tracking-[0.16em] text-fault">
               Experiment {String(experiment.id).padStart(2, "0")} · {scenario.title}
             </div>
 
@@ -93,7 +93,7 @@ export function ExperimentNote({ experiment, anchor, now, history, shape, onChoo
                   ) : (
                     <motion.div className="flex flex-col gap-2" {...reveal}>
                       <Delta before={before} after={after} />
-                      <p className="font-serif text-[13px] leading-snug text-ink/85 normal-case italic tracking-normal">
+                      <p className="font-sans text-[13px] leading-snug text-ink/85 normal-case tracking-normal">
                         {scenario.consequence(shape)}
                       </p>
                     </motion.div>
@@ -105,7 +105,7 @@ export function ExperimentNote({ experiment, anchor, now, history, shape, onChoo
             {asking && (
               <motion.div {...reveal}>
                 <Step n="3" label="Your move">
-                  <p className="font-serif text-[14px] leading-snug text-ink normal-case italic tracking-normal">
+                  <p className="font-sans text-[14px] leading-snug text-ink normal-case tracking-normal">
                     {scenario.question}
                   </p>
                   {!explained ? (
@@ -142,7 +142,7 @@ export function ExperimentNote({ experiment, anchor, now, history, shape, onChoo
 
             <button
               onClick={onRestore}
-              className="pointer-events-auto cursor-pointer self-end font-mono text-[8px] uppercase tracking-[0.26em] text-ink-faint transition-colors hover:text-accent"
+              className="pointer-events-auto cursor-pointer self-end font-mono text-[10px] uppercase tracking-[0.16em] text-ink-faint transition-colors hover:text-accent"
             >
               ↺ restore the system
             </button>
@@ -171,10 +171,10 @@ export function ExperimentNote({ experiment, anchor, now, history, shape, onChoo
 
 function Step({ n, label, children }: { n: string; label: string; children: ReactNode }) {
   return (
-    <div className="flex flex-col gap-1.5 font-mono text-[9px] leading-relaxed tracking-[0.04em]">
-      <div className="flex items-center justify-end gap-2 text-[8px] uppercase tracking-[0.26em] text-ink-faint">
+    <div className="flex flex-col gap-1.5 font-mono text-[11px] leading-relaxed tracking-[0.04em]">
+      <div className="flex items-center justify-end gap-2 text-[10px] uppercase tracking-[0.16em] text-ink-faint">
         <span>{label}</span>
-        <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full border border-ink-faint/60 text-[7px] tracking-normal">
+        <span className="flex h-3.5 w-3.5 items-center justify-center rounded-full border border-ink-faint/60 text-[9px] tracking-normal">
           {n}
         </span>
       </div>
