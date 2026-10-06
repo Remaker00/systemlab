@@ -26,8 +26,8 @@ export function Readout({ lines, load }: { lines: ReadoutLine[]; load?: number }
 }
 
 /** A hairline gauge with a tick at 100%. Past capacity, the overflow spills beyond the tick in fault red. */
-function LoadGauge({ load }: { load: number }) {
-  const W = 56; // gauge length at 100%
+export function LoadGauge({ load, width = 56 }: { load: number; width?: number }) {
+  const W = width; // gauge length at 100%
   const within = Math.min(load, 1) * W;
   const over = Math.min(Math.max(load - 1, 0), 1) * W * 0.5;
   const tone = load >= 1 ? "var(--fault)" : load >= 0.75 ? "var(--accent)" : "var(--ink-soft)";

@@ -21,6 +21,8 @@ type FrameProps = {
   readout?: ReactNode;
   /** the node is failing under load: corners turn to fault and the glyph trembles */
   alarm?: boolean;
+  /** the node is dead (Break the System): the drawing fades and is struck through */
+  down?: boolean;
   children: ReactNode;
 };
 
@@ -28,7 +30,7 @@ type FrameProps = {
  * The shared "plotted object" shell: registration corners, a coordinate
  * annotation, the glyph, and a tiny title block underneath. No card, no box.
  */
-export function NodeFrame({ node, delay, hasSource, hasTarget, readout, alarm = false, children }: FrameProps) {
+export function NodeFrame({ node, delay, hasSource, hasTarget, readout, alarm = false, down = false, children }: FrameProps) {
   const { id, type, data, positionAbsoluteX: x, positionAbsoluteY: y, dragging } = node;
   const { running, focusedId } = useLab();
   const focused = focusedId === id;
@@ -76,7 +78,7 @@ export function NodeFrame({ node, delay, hasSource, hasTarget, readout, alarm = 
               />
             )}
           </AnimatePresence>
-          <Corners active={!!active || alarm} focused={focused} alarm={alarm} />
+          <Corners active={!!active || alarm || down} focused={focused} alarm={alarm || down} />
           <motion.svg
             viewBox={`0 0 ${GLYPH} ${GLYPH}`}
             width={GLYPH}
@@ -91,10 +93,21 @@ export function NodeFrame({ node, delay, hasSource, hasTarget, readout, alarm = 
               transition: "filter 1.2s ease",
             }}
             // a fine tremor, not a shake: the object is straining, not cartoon-broken
-            animate={alarm ? { x: [0, -0.7, 0.6, -0.4, 0] } : { x: 0 }}
-            transition={alarm ? { duration: 0.35, repeat: Infinity, repeatDelay: 0.25 } : { duration: 0.2 }}
+            animate={alarm && !down ? { x: [0, -0.7, 0.6, -0.4, 0] } : { x: 0 }}
+            transition={alarm && !down ? { duration: 0.35, repeat: Infinity, repeatDelay: 0.25 } : { duration: 0.2 }}
           >
-            <g filter="url(#sl-sketch)">{children}</g>
+            <motion.g animate={{ opacity: down ? 0.3 : 1 }} transition={{ duration: 0.8 }}>
+              <g filter="url(#sl-sketch)">{children}</g>
+            </motion.g>
+            <AnimatePresence>
+              {down && (
+                <motion.g key="strike" exit={{ opacity: 0 }} transition={{ duration: 0.4 }}>
+                  {/* struck through like a cancelled part on a drawing */}
+                  <Ink d="M 18 22 L 102 98" stroke="var(--fault)" strokeWidth={1.1} duration={0.5} />
+                  <Ink d="M 102 22 L 18 98" stroke="var(--fault)" strokeWidth={1.1} duration={0.5} delay={0.25} />
+                </motion.g>
+              )}
+            </AnimatePresence>
           </motion.svg>
 
           <AnimatePresence>

@@ -91,3 +91,82 @@ in that node's focus note (the Part 2 contextual layer). While running, the titl
 
 ### D19: Readouts sit beside the glyph and grow upward from above the side handle
 **Why:** at that height they never cover a link or the focus note below the node.
+
+### D20: Round-robin lives in the engine's routing, per load balancer
+`Simulation.pickRoute` keeps a rotation counter per LB node and indexes its current outgoing links (in link order).
+Other forks stay random (unchanged from Part 3).
+**Why:** that's the behaviour being taught, and it's deterministic, so the per-server load split is visibly even.
+No health checks: that's a separate future concept, and the note's fragility line points at it.
+
+### D21: Adding components = a drawer in the existing strip, not a palette or sidebar
+Two entries (Load balancer, API server). New nodes come from `createNode` (graph.ts) with the next drawing index,
+are placed via a free-spot scan, focused, and the sheet refits. Added nodes are deletable. The original three are not (D9 still holds).
+**Why:** minimal chrome. Focusing a new node shows its explanation straight away.
+
+### D22: Two complementary comparisons
+(a) LB note: arithmetic load of "1 server" vs "the pool" at the current traffic, readable before running.
+(b) `Ledger` (src/lib/sim/ledger.ts): measured rows per pool size (active capacity-bound servers), written only after
+the config (graph structure + pool + capacity + traffic) has been steady for 3s of sim time.
+**Why:** the brief asks to *compare* behaviour, and measured numbers are the honest version. The structure is part of the key
+because per-node arrivals linger ~1s after a cut, so quick rewiring otherwise leaked transitional states into a row (found in testing).
+
+### D23: Reveal-pan for focus notes (amends the Part 2 "no auto-pan" note)
+Only when the note would overflow under the strip, and only by the overflow amount. It waits for an add-refit to finish (`framingUntil`).
+**Why:** the LB note is long, and without this the explanation, the main deliverable, was hidden behind the strip.
+
+### D24: Focus-note backdrop is near-opaque paper (/95 → /92 → /80)
+**Why:** focused nodes' neighbours stay at full brightness, so the previous fade-to-transparent let them show through
+the text. It's the same colour as the paper, so it still reads as negative space, not a card.
+
+### D25: Load balancer has no readout
+**Why:** its fan of outgoing links and their labels occupy the readout position. The particles and per-server loads show its effect.
+
+### D26: Faults are modelled in the engine, not faked in the view
+`Fault {kind, target, from}` goes into `Simulation.step`. It takes effect at a sim time, so pausing pauses the experiment too.
+**Why:** "see it fail first" only teaches if the failure is the real consequence of the model: the same queues, drops and
+latency the user has been watching. It also means the user's own fixes (adding servers mid-experiment) genuinely change the outcome.
+
+### D27: The experiment is a timed margin note pinned to the broken part, not a quiz or modal
+Beats are derived from sim time (`experimentStage`). Only the user's choice is stored. Before/after figures are read from a
+`History` of snapshots at `breakAt` and `breakAt + OBSERVE_S`, so they're measured values.
+**Why:** the brief asks for an experiment happening on the canvas, with failure before explanation. Fixed delays
+(5s observe, 1.5s, then the question) enforce that order. Answers get a reply, but there's no score or right/wrong styling.
+
+### D28: Clean baselines
+An experiment breaks immediately only if the previous BASELINE_S (3s) were normal running time. Otherwise it measures normal operation first
+(`quietSince` is set on restore).
+**Why:** in testing, a database failure started right after an API failure reported the previous failure as its "before" (17% errors).
+
+### D29: Break / Restore share one spot in the strip, and Add/Break share one `Drawer`
+**Why:** one subtle control, no extra chrome. Fault red marks it as the destructive one.
+
+### D30: Experiment framing uses fitBounds over (note ∪ system)
+Focus notes keep the gentle pan from D23 (now via a shared `revealLater` helper that also respects the title block).
+**Why:** the experiment note grows with each beat. Panning alone pushed the drawing under the strip, but the point is to read the note *beside* the failing system.
+
+### D31: Faults stay out of the comparison ledger
+**Why:** a broken system isn't a "pool size" data point. `Ledger.interrupt()` forces a fresh 3s settle after restore.
+
+### D32: The cache is inline (read-through): API → Redis → Database
+**Why:** it lets the existing route/particle machinery show the full story along real links: HIT ends at Redis, MISS
+continues to the DB, and the store travels back along the same link. A cache-aside drawing (API talks to both) would need
+fan-out logic in the router for little teaching gain.
+
+### D33: Hit rate is a dial on *cacheability*. The measured hit rate is emergent.
+`hitShare` = the share of requests for one of HOT_KEYS (30) popular keys. Others are one-off keys. Real hits additionally
+need the entry to exist and be within TTL.
+**Why:** the brief asks to change the hit rate *and* show TTL. A direct dial plus an emergent result lets both be true. The note
+calls out when TTL is the reason the measured rate falls short of the dial.
+
+### D34: TTL is checked against the current setting (entries store `storedAt`)
+**Why:** turning the TTL stepper should show its effect within a second. Real Redis keeps per-entry TTLs, so this choice is noted in the code.
+
+### D35: Cache visuals reuse the particle system with two new phases
+`pop` (expanding ring: a hit at the end of the link into Redis, or a store at its start) and `returning` (a hollow ring travelling the
+DB link in reverse). Miss legs are drawn in pale ink. Timing constants are shared from the engine (`POP_S`, `STORE_HOP_FACTOR`).
+
+### D36: `StepperRow` generalises the Part 3 capacity stepper (capacity, hit rate, ttl)
+Same markup and look. Rows appear for whichever tunable fields a node's data has.
+
+### D37: Redis is placed above the API → Database span
+**Why:** readouts sit above-right of every glyph. Below or between, the Redis → Database link ran straight through Redis's own readout.

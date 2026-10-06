@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { emptyMetrics, Simulation, type Metrics, type SimGraph } from "./engine";
+import { emptyMetrics, isFaultActive, Simulation, type Fault, type Metrics, type SimGraph } from "./engine";
+import { History } from "./history";
+import { Ledger, type LedgerRow } from "./ledger";
 
 const PUBLISH_MS = 125; // React only hears about metrics ~8×/s; particles are drawn imperatively
 
@@ -9,16 +11,24 @@ const PUBLISH_MS = 125; // React only hears about metrics ~8×/s; particles are 
  * Runs the simulation on requestAnimationFrame while `running`. Pausing freezes sim time,
  * so particles and metrics resume exactly where they stopped.
  */
-export function useSimulation(running: boolean, rate: number, graph: SimGraph) {
+export function useSimulation(running: boolean, rate: number, graph: SimGraph, fault: Fault | null) {
   const [sim] = useState(() => new Simulation());
+  const [ledger] = useState(() => new Ledger());
+  const [history] = useState(() => new History());
   const [metrics, setMetrics] = useState<Metrics>(emptyMetrics);
+  const [comparison, setComparison] = useState<{ rows: LedgerRow[]; current: number | null }>({
+    rows: [],
+    current: null,
+  });
   const rateRef = useRef(rate);
   const graphRef = useRef(graph);
+  const faultRef = useRef(fault);
 
   useEffect(() => {
     rateRef.current = rate;
     graphRef.current = graph;
-  }, [rate, graph]);
+    faultRef.current = fault;
+  }, [rate, graph, fault]);
 
   useEffect(() => {
     if (!running) return;
@@ -28,21 +38,37 @@ export function useSimulation(running: boolean, rate: number, graph: SimGraph) {
     const tick = (t: number) => {
       const dt = Math.min(0.1, (t - last) / 1000); // a backgrounded tab must not dump a burst
       last = t;
-      sim.step(dt, rateRef.current, graphRef.current);
+      sim.step(dt, rateRef.current, graphRef.current, faultRef.current);
       if (t - published > PUBLISH_MS) {
         published = t;
-        setMetrics(sim.snapshot(graphRef.current));
+        const snapshot = sim.snapshot(graphRef.current);
+        history.push(snapshot);
+        // a broken system isn't a pool-size data point: keep faults out of the comparison
+        if (isFaultActive(faultRef.current, sim.time)) ledger.interrupt();
+        else ledger.observe(snapshot, rateRef.current, sim.time, structureOf(graphRef.current));
+        setMetrics(snapshot);
+        setComparison({ rows: ledger.rows, current: ledger.current });
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [running, sim]);
+  }, [running, sim, ledger, history]);
 
   const reset = useCallback(() => {
     sim.reset();
+    ledger.reset();
+    history.reset();
     setMetrics(emptyMetrics);
-  }, [sim]);
+    setComparison({ rows: [], current: null });
+  }, [sim, ledger, history]);
 
-  return { sim, metrics, reset };
+  return { sim, metrics, comparison, history, reset };
+}
+
+/** Links and capacities as a string: changes whenever the system's shape does. */
+function structureOf(graph: SimGraph): string {
+  const caps = graph.nodes.map((n) => `${n.id}:${n.capacity ?? ""}:${n.hitShare ?? ""}:${n.ttl ?? ""}`);
+  const links = graph.edges.map((e) => `${e.source}>${e.target}`);
+  return [...caps, ...links].sort().join(",");
 }

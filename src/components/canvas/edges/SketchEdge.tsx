@@ -4,6 +4,7 @@ import { EdgeLabelRenderer, getBezierPath, useReactFlow, type EdgeProps } from "
 import { AnimatePresence, motion } from "framer-motion";
 import { useState } from "react";
 import type { LabEdge } from "@/lib/graph";
+import { SLOW_LINK_MS } from "@/lib/sim/engine";
 import { useDimmed, useLab } from "../LabContext";
 
 const PEN = [0.65, 0, 0.35, 1] as const;
@@ -26,7 +27,8 @@ export function SketchEdge({
   data,
   selected,
 }: EdgeProps<LabEdge>) {
-  const { running, focusedId } = useLab();
+  const { running, focusedId, fault } = useLab();
+  const slow = fault?.kind === "latency";
   const dimmed = useDimmed("edge", id);
   const lit = !!focusedId && !dimmed;
   const { deleteElements } = useReactFlow();
@@ -78,6 +80,25 @@ export function SketchEdge({
           style={{ transition: "stroke 0.4s, stroke-width 0.4s" }}
         />
 
+        {/* degraded link: a crawling dashed overlay, like a line drawn in hesitant strokes */}
+        <AnimatePresence>
+          {slow && !cutting && (
+            <motion.path
+              key="slow"
+              d={path}
+              fill="none"
+              stroke="var(--fault)"
+              strokeWidth={1}
+              strokeDasharray="2 7"
+              className="sl-crawl"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 0.75 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.6 }}
+            />
+          )}
+        </AnimatePresence>
+
         {/* terminals: open ring at source, filled bead at target */}
         <circle cx={sourceX} cy={sourceY} r={2} fill="var(--paper)" stroke="var(--ink-faint)" strokeWidth={0.8} />
         <motion.circle
@@ -127,6 +148,7 @@ export function SketchEdge({
               }`}
             >
               {data.label}
+              {slow && <span className="text-fault"> · +{SLOW_LINK_MS}ms</span>}
             </span>
           )}
         </motion.div>

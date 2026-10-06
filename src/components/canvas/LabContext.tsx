@@ -1,7 +1,7 @@
 "use client";
 
 import { createContext, useContext } from "react";
-import { emptyMetrics, type Metrics } from "@/lib/sim/engine";
+import { emptyMetrics, type Fault, type Metrics } from "@/lib/sim/engine";
 
 /**
  * Canvas-wide visual state.
@@ -16,6 +16,10 @@ export type LabState = {
   litNodes: ReadonlySet<string>;
   litEdges: ReadonlySet<string>;
   metrics: Metrics;
+  /** requests/s Users are set to emit */
+  traffic: number;
+  /** the Break-the-System fault currently in effect (null before it lands or when none) */
+  fault: Fault | null;
 };
 
 export const LabContext = createContext<LabState>({
@@ -24,7 +28,15 @@ export const LabContext = createContext<LabState>({
   litNodes: new Set(),
   litEdges: new Set(),
   metrics: emptyMetrics,
+  traffic: 0,
+  fault: null,
 });
+
+/** Whether the active fault has taken this node down. */
+export function useIsDown(id: string): boolean {
+  const { fault } = useLab();
+  return !!fault && (fault.kind === "api-down" || fault.kind === "db-down") && fault.target === id;
+}
 
 export const useLab = () => useContext(LabContext);
 

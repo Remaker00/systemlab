@@ -4,7 +4,16 @@ import { useEdges, useNodes, useReactFlow } from "@xyflow/react";
 import { motion, type Variants } from "framer-motion";
 import { useMemo } from "react";
 import { catalog } from "@/lib/catalog";
-import { CAPACITY_STEPS, type LabEdge, type LabNode, type LabNodeType } from "@/lib/graph";
+import {
+  CAPACITY_STEPS,
+  HIT_SHARE_STEPS,
+  TTL_STEPS,
+  type LabEdge,
+  type LabNode,
+  type LabNodeType,
+} from "@/lib/graph";
+import { useLab } from "../LabContext";
+import { LoadGauge } from "./Readout";
 
 type Props = {
   nodeId: string;
@@ -30,10 +39,11 @@ const row: Variants = {
 export function FocusNote({ nodeId, type, index }: Props) {
   const spec = catalog[type];
   const links = useLinks(nodeId);
-  const capacity = useNodes<LabNode>().find((n) => n.id === nodeId)?.data.capacity;
+  const data = useNodes<LabNode>().find((n) => n.id === nodeId)?.data;
 
   return (
     <motion.div
+      data-sl-note
       className="nodrag nopan pointer-events-none absolute left-1/2 top-full z-10 mt-4 w-[232px] cursor-default"
       variants={list}
       initial="hidden"
@@ -62,7 +72,7 @@ export function FocusNote({ nodeId, type, index }: Props) {
       />
       <span className="absolute -left-[2.5px] -top-[2.5px] h-1.5 w-1.5 rounded-full bg-accent shadow-[0_0_6px_var(--accent-glow)]" />
 
-      <div className="flex flex-col gap-2.5 bg-gradient-to-r from-[#0c0c0b]/90 via-[#0c0c0b]/70 to-transparent py-1 pl-4">
+      <div className="flex flex-col gap-2.5 bg-gradient-to-r from-[#0c0c0b]/95 via-[#0c0c0b]/92 to-[#0c0c0b]/80 py-1 pl-4">
         <motion.div variants={row} className="font-mono text-[8px] uppercase tracking-[0.26em] text-accent/80">
           N°{index} — {spec.role}
         </motion.div>
@@ -70,6 +80,25 @@ export function FocusNote({ nodeId, type, index }: Props) {
         <motion.p variants={row} className="font-serif text-[13.5px] leading-snug text-ink/85 italic">
           {spec.summary}
         </motion.p>
+
+        {spec.why && (
+          <motion.div variants={row} className="flex flex-col gap-1">
+            <span className="font-mono text-[8px] uppercase tracking-[0.26em] text-ink-faint">Why it exists</span>
+            <p className="font-mono text-[9px] leading-relaxed tracking-[0.04em] text-ink-soft">{spec.why}</p>
+          </motion.div>
+        )}
+
+        {type === "loadbalancer" && (
+          <motion.div variants={row}>
+            <PoolComparison nodeId={nodeId} />
+          </motion.div>
+        )}
+
+        {type === "cache" && (
+          <motion.div variants={row}>
+            <CacheInsight nodeId={nodeId} />
+          </motion.div>
+        )}
 
         <motion.dl variants={row} className="flex flex-col gap-1 font-mono text-[9px] tracking-[0.08em]">
           {spec.properties.map(([label, value]) => (
@@ -79,7 +108,10 @@ export function FocusNote({ nodeId, type, index }: Props) {
               <dd className="text-ink-soft">{value}</dd>
             </div>
           ))}
-          {capacity !== undefined && <CapacityRow nodeId={nodeId} capacity={capacity} />}
+          {TUNABLES.map(({ field, ...t }) => {
+            const value = data?.[field];
+            return value === undefined ? null : <StepperRow key={field} nodeId={nodeId} field={field} value={value} {...t} />;
+          })}
         </motion.dl>
 
         <motion.div variants={row} className="flex flex-col gap-1 font-mono text-[9px] tracking-[0.08em]">
@@ -96,42 +128,150 @@ export function FocusNote({ nodeId, type, index }: Props) {
   );
 }
 
-/** The one tunable in the note: how many requests/s this node can serve. */
-function CapacityRow({ nodeId, capacity }: { nodeId: string; capacity: number }) {
+type Tunable = "capacity" | "hitShare" | "ttl";
+
+/** The tunables a node's note offers, in display order. */
+const TUNABLES: { field: Tunable; label: string; steps: readonly number[]; format: (v: number) => string }[] = [
+  { field: "capacity", label: "capacity", steps: CAPACITY_STEPS, format: (v) => `${v}/s` },
+  { field: "hitShare", label: "hit rate", steps: HIT_SHARE_STEPS, format: (v) => `${Math.round(v * 100)}%` },
+  { field: "ttl", label: "ttl", steps: TTL_STEPS, format: (v) => `${v}s` },
+];
+
+/** A tunable value in the note, stepped through fixed values with −/+. */
+function StepperRow({
+  nodeId,
+  field,
+  label,
+  value,
+  steps,
+  format,
+}: {
+  nodeId: string;
+  field: Tunable;
+  label: string;
+  value: number;
+  steps: readonly number[];
+  format: (v: number) => string;
+}) {
   const { updateNodeData } = useReactFlow<LabNode, LabEdge>();
-  const i = CAPACITY_STEPS.findIndex((c) => c >= capacity);
+  const i = steps.findIndex((c) => c >= value);
   const step = (d: -1 | 1) => {
-    const next = CAPACITY_STEPS[Math.min(CAPACITY_STEPS.length - 1, Math.max(0, i + d))];
-    if (next !== capacity) updateNodeData(nodeId, { capacity: next });
+    const next = steps[Math.min(steps.length - 1, Math.max(0, i + d))];
+    if (next !== value) updateNodeData(nodeId, { [field]: next });
   };
   const btn =
     "pointer-events-auto flex h-4 w-4 cursor-pointer items-center justify-center border border-white/10 text-ink-soft transition-colors hover:border-accent hover:text-accent disabled:cursor-default disabled:opacity-30 disabled:hover:border-white/10 disabled:hover:text-ink-soft";
   return (
     <div className="flex items-center gap-2 pt-0.5">
-      <dt className="text-accent/80">capacity</dt>
+      <dt className="text-accent/80">{label}</dt>
       <span className="flex-1 translate-y-[-2px] border-b border-dotted border-accent/20" />
       <dd className="flex items-center gap-1.5">
-        <button className={btn} onClick={() => step(-1)} disabled={i <= 0} aria-label="Lower capacity">
+        <button className={btn} onClick={() => step(-1)} disabled={i <= 0} aria-label={`Lower ${label}`}>
           −
         </button>
         <motion.span
-          key={capacity}
+          key={value}
           className="w-10 text-center tabular-nums text-ink"
           initial={{ opacity: 0, y: -3 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2 }}
         >
-          {capacity}/s
+          {format(value)}
         </motion.span>
         <button
           className={btn}
           onClick={() => step(1)}
-          disabled={i >= CAPACITY_STEPS.length - 1}
-          aria-label="Raise capacity"
+          disabled={i >= steps.length - 1}
+          aria-label={`Raise ${label}`}
         >
           +
         </button>
       </dd>
+    </div>
+  );
+}
+
+/**
+ * One live sentence about this cache, chosen from what the simulation is showing right now.
+ * Short and contextual: it names the effect on screen, not the theory.
+ */
+function CacheInsight({ nodeId }: { nodeId: string }) {
+  const { metrics, running } = useLab();
+  const edges = useEdges<LabEdge>();
+  const nodes = useNodes<LabNode>();
+  const type = (id: string) => nodes.find((n) => n.id === id)?.type;
+  const fed = edges.some((e) => e.target === nodeId);
+  const backed = edges.some((e) => e.source === nodeId && type(e.target) === "database");
+  const stats = metrics.caches[nodeId];
+
+  let line: string;
+  let setup = false;
+  if (!fed || !backed) {
+    setup = true;
+    line = "Route API → Redis → Database, then cut the direct API → Database link so every read asks Redis first.";
+  } else if (!running || !stats || stats.lookups === 0) {
+    line = "Run it: amber flashes at Redis are hits. Pale requests going on to the database are misses, and the ring coming back stores the answer.";
+  } else if (stats.hitShare - stats.hitRate > 0.15) {
+    line = `Only ${Math.round(stats.hitRate * 100)}% hit, not ${Math.round(stats.hitShare * 100)}%: entries expire before anyone asks again. Try a longer TTL.`;
+  } else if (stats.hitRate >= 0.9) {
+    line = "Nearly everything is answered from memory. The database is almost idle.";
+  } else {
+    line = `${Math.round(stats.hitRate * 100)}% of reads never reach the database. Raise the hit rate and watch the database link go quiet.`;
+  }
+  return (
+    <p
+      className={`border-l pl-2 font-mono text-[8.5px] leading-relaxed tracking-[0.06em] ${
+        setup ? "border-accent/30 text-accent/80" : "border-white/10 text-ink-soft"
+      }`}
+    >
+      {line}
+    </p>
+  );
+}
+
+/**
+ * One server versus the pool behind this balancer, at the current traffic.
+ * It's simple arithmetic (load = traffic / capacity), so the effect reads before the simulation even runs.
+ */
+function PoolComparison({ nodeId }: { nodeId: string }) {
+  const { traffic } = useLab();
+  const edges = useEdges<LabEdge>();
+  const nodes = useNodes<LabNode>();
+
+  const pool = edges
+    .filter((e) => e.source === nodeId)
+    .map((e) => nodes.find((n) => n.id === e.target)?.data.capacity)
+    .filter((c): c is number => c !== undefined);
+  const fedByUsers = edges.some((e) => e.target === nodeId && nodes.find((n) => n.id === e.source)?.type === "users");
+
+  if (!pool.length || !fedByUsers) {
+    return (
+      <p className="border-l border-accent/30 pl-2 font-mono text-[8.5px] leading-relaxed tracking-[0.06em] text-accent/80">
+        Route Users → Load Balancer, then link it to each API server. Cut the direct Users → API link so every
+        request passes through here.
+      </p>
+    );
+  }
+
+  const rows = [
+    { label: "1 server", capacity: pool[0] },
+    { label: `${pool.length} servers`, capacity: pool.reduce((a, b) => a + b, 0) },
+  ];
+  return (
+    <div className="flex flex-col gap-1.5 font-mono text-[9px] tracking-[0.08em]">
+      <span className="text-[8px] uppercase tracking-[0.26em] text-ink-faint">At {traffic}/s</span>
+      {rows.map(({ label, capacity }) => {
+        const load = traffic / capacity;
+        const tone = load >= 1 ? "text-fault" : load >= 0.75 ? "text-accent" : "text-ink-soft";
+        return (
+          <div key={label} className="flex items-center gap-2">
+            <span className="w-16 text-ink-faint">{label}</span>
+            <span className="w-11 tabular-nums text-ink-soft">{capacity}/s</span>
+            <LoadGauge load={load} width={40} />
+            <span className={`tabular-nums ${tone}`}>{Math.round(load * 100)}%</span>
+          </div>
+        );
+      })}
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import { ViewportPortal } from "@xyflow/react";
 import { useEffect, useState } from "react";
-import { DROP_S, HOP_S, MAX_WAIT_S, type Particle, type Simulation } from "@/lib/sim/engine";
+import { DROP_S, MAX_WAIT_S, POP_S, STORE_HOP_FACTOR, type Particle, type Simulation } from "@/lib/sim/engine";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const QUEUE_GAP = 4.5; // px between queued requests along the incoming link
@@ -68,9 +68,28 @@ export function ParticleLayer({ sim }: { sim: Simulation }) {
         let opacity = 1;
         let r = 1.7;
         let fill = "var(--accent)";
+        let stroke = "none";
+
+        // past a cache miss, the request is the slow trip to the database: drawn in pale ink
+        const missLeg = p.cacheHop !== null && p.hop > p.cacheHop;
 
         if (p.state === "moving") {
-          at = len * ease(Math.min(1, elapsed / HOP_S));
+          at = len * ease(Math.min(1, elapsed / p.hopS));
+          if (missLeg) fill = "var(--ink)";
+        } else if (p.state === "returning") {
+          // the value travels back to be stored: a hollow amber ring, running in reverse
+          at = len * (1 - ease(Math.min(1, elapsed / (p.hopS * STORE_HOP_FACTOR))));
+          fill = "none";
+          stroke = "var(--accent)";
+          r = 2.2;
+        } else if (p.state === "pop") {
+          // hit (end of the link into the cache) or store (start of the link out of it): an expanding ring
+          const k = Math.min(1, elapsed / POP_S);
+          at = p.popAtStart ? 0 : len;
+          fill = "none";
+          stroke = "var(--accent)";
+          r = 2 + (p.popAtStart ? 5 : 9) * k;
+          opacity = 1 - k;
         } else if (p.state === "waiting") {
           const i = slot.get(p.id) ?? 0;
           at = Math.max(len * 0.2, len - 6 - i * QUEUE_GAP);
@@ -90,6 +109,8 @@ export function ParticleLayer({ sim }: { sim: Simulation }) {
         dot.setAttribute("cy", (pt.y + dy).toFixed(1));
         dot.setAttribute("r", String(r));
         dot.setAttribute("fill", fill);
+        dot.setAttribute("stroke", stroke);
+        dot.setAttribute("stroke-width", "1");
         dot.setAttribute("opacity", opacity.toFixed(2));
       }
 

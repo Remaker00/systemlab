@@ -2,8 +2,10 @@
 
 import { useReactFlow, useViewport } from "@xyflow/react";
 import { AnimatePresence, motion } from "framer-motion";
-import type { ReactNode } from "react";
-import { TRAFFIC_STEPS } from "@/lib/graph";
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { scenarios } from "@/lib/experiments";
+import { TRAFFIC_STEPS, type AddableType } from "@/lib/graph";
+import type { FaultKind } from "@/lib/sim/engine";
 
 type Props = {
   running: boolean;
@@ -12,10 +14,24 @@ type Props = {
   /** requests/s emitted by Users */
   traffic: number;
   onTraffic: (rps: number) => void;
+  onAdd: (type: AddableType) => void;
+  experimenting: boolean;
+  onBreak: (kind: FaultKind) => void;
+  onRestore: () => void;
 };
 
 /** The only chrome on the page: a hairline instrument strip at the bottom. */
-export function CanvasControls({ running, onRun, onReset, traffic, onTraffic }: Props) {
+export function CanvasControls({
+  running,
+  onRun,
+  onReset,
+  traffic,
+  onTraffic,
+  onAdd,
+  experimenting,
+  onBreak,
+  onRestore,
+}: Props) {
   const { zoomIn, zoomOut, fitView } = useReactFlow();
   const { zoom } = useViewport();
 
@@ -57,6 +73,21 @@ export function CanvasControls({ running, onRun, onReset, traffic, onTraffic }: 
 
       <Divider />
 
+      <Drawer
+        label="Add component"
+        trigger={
+          <>
+            <span className="text-[11px] leading-none tracking-normal">+</span>
+            Add
+          </>
+        }
+        items={ADDABLE}
+        onPick={onAdd}
+      />
+      <BreakControl experimenting={experimenting} onBreak={onBreak} onRestore={onRestore} />
+
+      <Divider />
+
       <Button onClick={() => zoomOut({ duration: 300 })} label="Zoom out" square>
         −
       </Button>
@@ -81,12 +112,14 @@ function Button({
   label,
   active,
   square,
+  tone = "accent",
 }: {
   children: ReactNode;
   onClick: () => void;
   label: string;
   active?: boolean;
   square?: boolean;
+  tone?: "accent" | "fault";
 }) {
   return (
     <button
@@ -95,7 +128,9 @@ function Button({
       title={label}
       className={`flex h-7 cursor-pointer items-center justify-center gap-2 font-mono text-[9.5px] uppercase tracking-[0.2em] transition-colors duration-300 ${
         square ? "w-7 text-[12px] tracking-normal" : "px-3"
-      } ${active ? "text-accent" : "text-ink-soft hover:text-ink"}`}
+      } ${
+        active ? (tone === "fault" ? "text-fault" : "text-accent") : tone === "fault" ? "text-ink-soft hover:text-fault" : "text-ink-soft hover:text-ink"
+      }`}
     >
       {children}
     </button>
@@ -122,6 +157,132 @@ function TrafficControl({ value, onChange, running }: { value: number; onChange:
         {value}/s
       </span>
     </label>
+  );
+}
+
+const ADDABLE: DrawerItem<AddableType>[] = [
+  { value: "loadbalancer", label: "Load balancer", note: "spread traffic" },
+  { value: "api", label: "API server", note: "add capacity" },
+  { value: "cache", label: "Redis", note: "cache reads" },
+];
+
+const BREAKABLE: DrawerItem<FaultKind>[] = scenarios.map((s) => ({ value: s.kind, label: s.title, note: s.tag }));
+
+/** Break opens the scenario drawer. While an experiment runs, the same spot restores the system. */
+function BreakControl({
+  experimenting,
+  onBreak,
+  onRestore,
+}: {
+  experimenting: boolean;
+  onBreak: (kind: FaultKind) => void;
+  onRestore: () => void;
+}) {
+  if (experimenting) {
+    return (
+      <Button onClick={onRestore} label="Restore the system">
+        <span className="h-1.5 w-1.5 rounded-full bg-fault shadow-[0_0_8px_var(--fault-glow)]" />
+        <span className="text-fault">Restore</span>
+      </Button>
+    );
+  }
+  return (
+    <Drawer
+      label="Break the system"
+      trigger={
+        <>
+          <svg width="9" height="9" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="0.9" aria-hidden>
+            <path d="M5 1 L4 4.5 L6 5.5 L5 9" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Break
+        </>
+      }
+      items={BREAKABLE}
+      onPick={onBreak}
+      tone="fault"
+      heading="Run an experiment"
+    />
+  );
+}
+
+type DrawerItem<T> = { value: T; label: string; note: string };
+
+/** A small drawer that opens upward out of the strip. Esc or a click elsewhere closes it. */
+function Drawer<T extends string>({
+  label,
+  trigger,
+  items,
+  onPick,
+  tone = "accent",
+  heading,
+}: {
+  label: string;
+  trigger: ReactNode;
+  items: DrawerItem<T>[];
+  onPick: (value: T) => void;
+  tone?: "accent" | "fault";
+  heading?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: PointerEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent ? e.key === "Escape" : !ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    window.addEventListener("pointerdown", close);
+    window.addEventListener("keydown", close);
+    return () => {
+      window.removeEventListener("pointerdown", close);
+      window.removeEventListener("keydown", close);
+    };
+  }, [open]);
+
+  const hoverNote = tone === "fault" ? "group-hover:text-fault" : "group-hover:text-accent/80";
+  return (
+    <div ref={ref} className="relative">
+      <Button onClick={() => setOpen((o) => !o)} label={label} active={open} tone={tone}>
+        {trigger}
+      </Button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            role="menu"
+            aria-label={label}
+            className="absolute bottom-full left-1/2 mb-4 flex w-56 -translate-x-1/2 flex-col border border-white/[0.06] bg-[#0e0e0d]/90 py-1.5 backdrop-blur-sm"
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 4 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+          >
+            {heading && (
+              <span className="px-3 pb-1 pt-0.5 font-mono text-[8px] uppercase tracking-[0.26em] text-ink-faint/70">
+                {heading}
+              </span>
+            )}
+            {items.map(({ value, label: itemLabel, note }) => (
+              <button
+                key={value}
+                role="menuitem"
+                onClick={() => {
+                  onPick(value);
+                  setOpen(false);
+                }}
+                className="group flex cursor-pointer items-baseline justify-between gap-3 px-3 py-1.5 text-left transition-colors hover:bg-white/[0.03]"
+              >
+                <span className="font-serif text-[14px] text-ink/85 italic transition-colors group-hover:text-ink">
+                  {itemLabel}
+                </span>
+                <span className={`font-mono text-[8px] uppercase tracking-[0.2em] text-ink-faint transition-colors ${hoverNote}`}>
+                  {note}
+                </span>
+              </button>
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
   );
 }
 

@@ -150,3 +150,19 @@ body {
 .sl-range:focus-visible {
   outline: none;
 }
+
+/* ---------- Break the System: a degraded link crawls ---------- */
+
+@keyframes sl-crawl {
+  to {
+    stroke-dashoffset: -36;
+  }
+}
+.sl-crawl {
+  animation: sl-crawl 2.4s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sl-crawl {
+    animation: none;
+  }
+}
