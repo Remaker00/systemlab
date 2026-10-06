@@ -28,13 +28,16 @@ src/lib/sim/useSimulation.ts rAF driver: steps while running, publishes metrics 
 src/lib/sim/ledger.ts       measured per-pool-size comparison rows (settle-gated, interrupted by faults)
 src/lib/sim/history.ts      trail of system snapshots for before/after reads
 src/lib/experiments.ts      Break-the-System scenarios (copy), Experiment type, stage timing
+src/lib/challenge.ts        sheets (01 sandbox, 02 surge), challenge constants/scale, trial phases, scoreTrial
 src/components/canvas/
   SystemCanvas.tsx          ReactFlow host, connect/validate, focus + reveal-pan, add components, title block,
                             comparison table, run/reset
   CanvasControls.tsx        bottom strip: Run/Pause, Reset, Traffic, + Add / Break drawers (Restore while broken), zoom
   ParticleLayer.tsx         imperative SVG particles on edge paths (ViewportPortal)
   ExperimentNote.tsx        the 4-beat experiment note pinned above the broken node (ViewportPortal)
-  LabContext.tsx            { running, focusedId, litNodes, litEdges, metrics, traffic, fault } + useDimmed(), useIsDown()
+  ChallengeNote.tsx         challenge brief / trial log / score, pinned left of Users (ViewportPortal)
+  LabContext.tsx            { running, focusedId, litNodes, litEdges, metrics, traffic, fault, scale, locked }
+                            + useDimmed(), useIsDown(), useScaled() (format every rate/count with the sheet's scale)
   SketchDefs.tsx            global SVG filters: #sl-sketch (ink wobble), #sl-glow
   nodes/NodeFrame.tsx       shared node shell (corners, coords, title block, handles) + <Ink> draw-in path
   nodes/FocusNote.tsx       leader-line callout under the focused node; StepperRow for capacity / hit rate / ttl;
@@ -64,5 +67,6 @@ src/components/canvas/
   make dimming wait for the intro delay.
 - `ViewportPortal` children mount late: use a callback ref (state), not `useRef` read in an effect.
 - Particles find edges by `path[data-sl-edge]`. Keep that attribute on SketchEdge's inked path.
+- Any new rate or count shown on screen must go through `useScaled()`, or it will be 50× wrong on the challenge sheet.
 - Experiment timing is in *sim* time (`metrics.time`), so it pauses with the simulation. Don't use wall-clock timers for beats.
 - `devIndicators: false` in `next.config.ts` (the badge overlapped the bottom-left status label).

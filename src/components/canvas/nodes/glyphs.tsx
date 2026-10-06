@@ -3,11 +3,10 @@
 import type { NodeProps } from "@xyflow/react";
 import { motion } from "framer-motion";
 import type { LabNode } from "@/lib/graph";
-import { useIsDown, useLab } from "../LabContext";
+import { useIsDown, useLab, useScaled } from "../LabContext";
 import { Ink, NodeFrame } from "./NodeFrame";
 import { Readout, type ReadoutLine } from "./Readout";
 
-const fmt = (n: number) => Math.round(n).toLocaleString("en-US");
 
 /*
  * Each glyph is drawn in a 120×120 viewBox using a technical-drawing
@@ -27,12 +26,13 @@ const ORBIT = "M 10 66 A 50 20 0 1 0 110 66 A 50 20 0 1 0 10 66";
 
 export function UsersNode(props: NodeProps<LabNode>) {
   const { running, metrics, fault } = useLab();
+  const scaled = useScaled();
   const spiking = fault?.kind === "spike";
   const readout = metrics.total > 0 && (
     <Readout
       lines={[
-        { label: "out", value: `${fmt(metrics.rps)}/s`, tone: spiking ? "fault" : undefined },
-        { label: "sent", value: fmt(metrics.total) },
+        { label: "out", value: scaled.rate(metrics.rps), tone: spiking ? "fault" : undefined },
+        { label: "sent", value: scaled.count(metrics.total) },
       ]}
     />
   );
@@ -69,6 +69,7 @@ const TIERS = [0, 17, 34];
 export function ApiNode(props: NodeProps<LabNode>) {
   const { running, metrics } = useLab();
   const stats = metrics.loads[props.id];
+  const scaled = useScaled();
   const down = useIsDown(props.id);
   const overloaded = running && !down && !!stats?.overloaded;
   const readout = metrics.total > 0 && stats && (
@@ -80,8 +81,8 @@ export function ApiNode(props: NodeProps<LabNode>) {
           value: `${Math.round(stats.load * 100)}%`,
           tone: stats.load >= 1 ? "fault" : stats.load >= 0.75 ? "accent" : undefined,
         },
-        { label: "queue", value: fmt(stats.queue), tone: stats.queue > 0 ? "accent" : undefined },
-        { label: "cap", value: `${stats.capacity}/s` },
+        { label: "queue", value: scaled.count(stats.queue), tone: stats.queue > 0 ? "accent" : undefined },
+        { label: "cap", value: scaled.rate(stats.capacity) },
         down ? { label: "health", value: "down", tone: "fault" } : health(stats.load, overloaded),
       ]}
     />
@@ -224,6 +225,7 @@ const CELLS = [5, 10, 0, 15, 6, 3, 12, 9, 1, 14, 7, 4, 11, 2, 13, 8].map((i) =>
 export function CacheNode(props: NodeProps<LabNode>) {
   const { running, metrics } = useLab();
   const stats = metrics.caches[props.id];
+  const scaled = useScaled();
   const ttl = props.data.ttl ?? 0;
   const lit = Math.round((stats?.hitRate ?? 0) * CELLS.length);
   const readout = metrics.total > 0 && stats && stats.lookups > 0 && (
@@ -233,7 +235,7 @@ export function CacheNode(props: NodeProps<LabNode>) {
         // what still reaches the database, and how much the cache took off it
         {
           label: "to db",
-          value: `${fmt(stats.lookups * (1 - stats.hitRate))}/s · −${Math.round(stats.hitRate * 100)}%`,
+          value: `${scaled.rate(stats.lookups * (1 - stats.hitRate))} · −${Math.round(stats.hitRate * 100)}%`,
         },
         { label: "speed", value: `${fmtMs(stats.hitMs)} / ${fmtMs(stats.missMs)}` },
         { label: "ttl", value: `${ttl}s` },
@@ -302,17 +304,27 @@ const BANDS = [50, 70];
 
 export function DatabaseNode(props: NodeProps<LabNode>) {
   const { running, metrics } = useLab();
+  const scaled = useScaled();
   const down = useIsDown(props.id);
+  // a database only queues (and can overload) when the sheet gives it a capacity
+  const stats = metrics.loads[props.id];
+  const overloaded = running && !down && !!stats?.overloaded;
   const readout = metrics.total > 0 && (
     <Readout
+      load={stats?.load}
       lines={[
-        { label: "in", value: `${fmt(metrics.arrivals[props.id] ?? 0)}/s` },
-        ...(down ? [{ label: "state", value: "down", tone: "fault" as const }] : []),
+        { label: "in", value: scaled.rate(metrics.arrivals[props.id] ?? 0) },
+        ...(stats ? [{ label: "cap", value: scaled.rate(stats.capacity) }] : []),
+        ...(down
+          ? [{ label: "state", value: "down", tone: "fault" as const }]
+          : stats
+            ? [health(stats.load, overloaded)]
+            : []),
       ]}
     />
   );
   return (
-    <NodeFrame node={props} delay={0.8} hasTarget readout={readout} down={down}>
+    <NodeFrame node={props} delay={0.8} hasTarget readout={readout} down={down} alarm={overloaded}>
       {/* hidden back half of the base */}
       <Ink d="M 26 92 A 34 10 0 0 1 94 92" faint strokeDasharray="1 3" delay={1.2} />
       {/* top ellipse + walls + base */}

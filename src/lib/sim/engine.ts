@@ -44,9 +44,11 @@ export const SLOW_LINK_MS = 300;
 const SLOW_HOP_FACTOR = 2.2; // visual slow-down of particles on degraded links
 
 export type FaultKind = "spike" | "api-down" | "db-down" | "latency";
-export type Fault = { kind: FaultKind; target: string | null; from: number };
+/** A fault applies from `from` (sim time) until `until`, or indefinitely if `until` is unset. */
+export type Fault = { kind: FaultKind; target: string | null; from: number; until?: number };
 
-export const isFaultActive = (fault: Fault | null, time: number): fault is Fault => !!fault && time >= fault.from;
+export const isFaultActive = (fault: Fault | null, time: number): fault is Fault =>
+  !!fault && time >= fault.from && (fault.until === undefined || time < fault.until);
 const LATENCY_FLOOR_MS: Record<string, number> = { database: 6, loadbalancer: 1 }; // fixed work at non-queueing nodes
 export const CACHE_MS = 0.5; // an in-memory lookup
 export const HOT_KEYS = 30;

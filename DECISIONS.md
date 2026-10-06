@@ -170,3 +170,35 @@ Same markup and look. Rows appear for whichever tunable fields a node's data has
 
 ### D37: Redis is placed above the API → Database span
 **Why:** readouts sit above-right of every glyph. Below or between, the Redis → Database link ran straight through Redis's own readout.
+
+### D38: Challenges live on drawing sheets
+The title block's sheet number becomes the sheet index. Each sheet remembers its drawing while you're on another.
+**Why:** it fits the drawing-set metaphor, adds no new chrome, and keeps the sandbox untouched by the challenge.
+
+### D39: Challenge scale: 1 simulated request = 50 real ones
+**Why:** the engine models individual requests, and 10,000/s per-request would be far too heavy. ×50 maps 1,000 → 10,000/s onto the
+existing 20 → 200 range. `useScaled()` formats every rate and count on screen. Latencies and percentages are untouched.
+
+### D40: Capacity and cacheability are fixed in the challenge
+API 3,000/s, DB 4,000/s, 80% repeat reads (`CHALLENGE_LOCKED` hides those steppers).
+**Why:** otherwise the answer is "turn the dial up". Fixed parts force the lesson to be architecture.
+
+### D41: Slot-in on the challenge sheet only
+**Why:** after the user decides *which* parts they need, wiring 5 servers × 2 links (and re-wiring them through Redis) is tedium,
+not discovery. Slot-in places a part where that kind of part goes. It never adds a part, so it doesn't answer the challenge.
+It's challenge-only so the Part 4/6 sandbox behaviour is unchanged.
+
+### D42: The trial is the simulation itself, scored from History
+A rate *schedule* (function of sim time) is passed to `useSimulation`. That avoids a render-time mirror of sim time.
+The mid-surge outage is a regular `api-down` Fault with an `until`.
+Calibration lessons from testing:
+(1) with zero requests served, latency/db must score 0, not "0 ms / 0% = perfect";
+(2) DB load is judged at full demand, so a system that collapsed upstream doesn't earn "database comfortable";
+(3) availability is full at 80% because blind round-robin can't beat (n−1)/n, and the explanation names that;
+(4) a capacity failure whose servers had room is attributed to "further down the line".
+
+### D43: Explanations end in a question, not a prescription
+Low criteria show a guiding question ("Do all of those reads really need the database?"). **Why:** the brief says don't give the answer.
+
+### D44: The comparison ledger counts API servers only
+**Why:** once the DB has a capacity (challenge), it was being counted as part of the server pool.

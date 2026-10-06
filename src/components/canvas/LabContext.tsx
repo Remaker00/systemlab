@@ -20,6 +20,10 @@ export type LabState = {
   traffic: number;
   /** the Break-the-System fault currently in effect (null before it lands or when none) */
   fault: Fault | null;
+  /** real requests per simulated request on this sheet (1 in the sandbox, 50 in the surge challenge) */
+  scale: number;
+  /** node-data tunables this sheet doesn't let you change */
+  locked: readonly string[];
 };
 
 export const LabContext = createContext<LabState>({
@@ -30,7 +34,16 @@ export const LabContext = createContext<LabState>({
   metrics: emptyMetrics,
   traffic: 0,
   fault: null,
+  scale: 1,
+  locked: [],
 });
+
+/** Formatters for quantities the sheet's scale applies to: request rates and request counts. */
+export function useScaled() {
+  const { scale } = useLab();
+  const count = (v: number) => Math.round(v * scale).toLocaleString("en-US");
+  return { count, rate: (v: number) => `${count(v)}/s` };
+}
 
 /** Whether the active fault has taken this node down. */
 export function useIsDown(id: string): boolean {

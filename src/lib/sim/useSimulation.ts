@@ -11,7 +11,10 @@ const PUBLISH_MS = 125; // React only hears about metrics ~8×/s; particles are 
  * Runs the simulation on requestAnimationFrame while `running`. Pausing freezes sim time,
  * so particles and metrics resume exactly where they stopped.
  */
-export function useSimulation(running: boolean, rate: number, graph: SimGraph, fault: Fault | null) {
+/** A fixed rate, or a schedule of sim time (a challenge trial drives its own traffic). */
+export type RateSource = number | ((time: number) => number);
+
+export function useSimulation(running: boolean, rate: RateSource, graph: SimGraph, fault: Fault | null) {
   const [sim] = useState(() => new Simulation());
   const [ledger] = useState(() => new Ledger());
   const [history] = useState(() => new History());
@@ -38,14 +41,19 @@ export function useSimulation(running: boolean, rate: number, graph: SimGraph, f
     const tick = (t: number) => {
       const dt = Math.min(0.1, (t - last) / 1000); // a backgrounded tab must not dump a burst
       last = t;
-      sim.step(dt, rateRef.current, graphRef.current, faultRef.current);
+      const source = rateRef.current;
+      const r = typeof source === "function" ? source(sim.time) : source;
+      sim.step(dt, r, graphRef.current, faultRef.current);
       if (t - published > PUBLISH_MS) {
         published = t;
         const snapshot = sim.snapshot(graphRef.current);
         history.push(snapshot);
         // a broken system isn't a pool-size data point: keep faults out of the comparison
         if (isFaultActive(faultRef.current, sim.time)) ledger.interrupt();
-        else ledger.observe(snapshot, rateRef.current, sim.time, structureOf(graphRef.current));
+        else {
+          const servers = new Set(graphRef.current.nodes.filter((n) => n.type === "api").map((n) => n.id));
+          ledger.observe(snapshot, r, sim.time, structureOf(graphRef.current), servers);
+        }
         setMetrics(snapshot);
         setComparison({ rows: ledger.rows, current: ledger.current });
       }

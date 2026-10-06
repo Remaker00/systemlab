@@ -36,7 +36,8 @@ export const scenarios: Scenario[] = [
     title: "Traffic spike",
     tag: `×${SPIKE_FACTOR} traffic`,
     anchor: "users",
-    change: (t) => `Demand jumps ${SPIKE_FACTOR}× at once: ${t}/s → ${t * SPIKE_FACTOR}/s.`,
+    change: (t) =>
+      `Demand jumps ${SPIKE_FACTOR}× at once: ${t.toLocaleString("en-US")}/s → ${(t * SPIKE_FACTOR).toLocaleString("en-US")}/s.`,
     consequence: ({ servers }) =>
       servers > 1
         ? "Every server fills at once. Queues stretch back along the links and the overflow falls away in red."

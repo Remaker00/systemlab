@@ -1,6 +1,6 @@
 # Progress
 
-## Status: Part 6 complete (2026-10-06). Waiting for the user to start Part 7.
+## Status: Part 7 complete (2026-10-06). Waiting for the user to start Part 8.
 
 ### Part 1: Visual foundation ✅
 - [x] Next.js + TS + Tailwind v4 + React Flow + Framer Motion scaffold
@@ -108,7 +108,30 @@
       and in-browser: add → rewire → run 40/s → DB in 10/s @80%, 33/s @0%, 0/s @99%; TTL 1s → note reports "Only 54% hit".
       Part 2–5 regression flows pass. No console errors. tsc, lint and build clean.
 
+### Part 7: Challenge 01, "The surge" ✅
+- [x] Drawing sheets: the title block's "Sheet 0X — …" is a switcher. 01 Foundation (sandbox) / 02 The surge (challenge).
+      Each sheet keeps its own nodes, links and traffic when you leave it. Reset restores the current sheet's start.
+- [x] The surge sheet starts with only Users and Database (capacity 4,000/s). Scale: 1 simulated request = 50 real
+      (`SCALE`). All rates on this sheet are ×50 (readouts, totals, slider, tables, notes) via `useScaled()`. Latency/% aren't scaled.
+- [x] Fixed constraints: API server 3,000/s, DB 4,000/s, reads that repeat 80%. Capacity and hit-rate steppers are locked
+      on this sheet (`CHALLENGE_LOCKED`). TTL stays tunable. The DB shows a load gauge/health when it has a capacity.
+- [x] Building is fast but not given away (`slotIn`): a new API server joins the pool wired like an existing one; a new
+      Redis takes over the API → Database links; a new load balancer takes over the Users → API links.
+- [x] Challenge note pinned left of Users: brief, the bench (constraints), "Put it on trial". The trial is scripted in sim time:
+      1,000/s (3s) → 10,000/s (9s) → one fed API server killed mid-surge (6s). It's driven by a rate schedule passed into
+      `useSimulation`, plus a timed `api-down` fault (`Fault.until`). The slider is locked during the trial. Break works as usual.
+- [x] Scoring (`scoreTrial`, 0–25 each, from `History` samples in settled windows): capacity (served share at peak),
+      latency, availability (served share after losing a server; full at 80% since blind round-robin caps at (n−1)/n),
+      database load (judged at full demand = load ÷ served). Verdict: holds / bends / cracks / falls over.
+      Each criterion: measured figure, a "why" built from what happened, and a question if it scored low (never the answer).
+      Attempts are listed (01 · 0, 02 · 0 …).
+- [x] Verified headlessly: nothing 0; 1 server 0; LB+5 no Redis 0 (DB wall: "servers had room… limit was further down");
+      LB+4+Redis 96; LB+5+Redis 100; LB+3+Redis 61. In-browser: the same arc via the UI (0 → 0 → 0 → 100), slot-in link counts
+      exact, sheets keep drawings. Part 2–6 regression flows pass. No console errors. tsc, lint and build clean.
+
 ### Known limitations / notes
+- A pool of 5+ servers stacks tall, so fit-to-view zooms the sheet out a lot.
+- Slot-in only knows the three standard lines (users→api, api→database, pool siblings). Unusual drawings are left alone.
 - With Redis above, the API → Redis link rises through the API's readout (readouts always sit above-right of a glyph).
 - The DB has no capacity, so "load reduction" shows as DB req/s, not as DB strain (as in Part 3).
 - The experiment's leader line can touch the target node's readout.
@@ -125,4 +148,4 @@
 - React Flow attribution is kept and styled very faint.
 
 ### Next (do not start until the user asks)
-- Part 7: TBD by the user.
+- Part 8: TBD by the user.

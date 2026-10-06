@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { scenarios } from "@/lib/experiments";
 import { TRAFFIC_STEPS, type AddableType } from "@/lib/graph";
 import type { FaultKind } from "@/lib/sim/engine";
+import { useScaled } from "./LabContext";
 
 type Props = {
   running: boolean;
@@ -14,6 +15,8 @@ type Props = {
   /** requests/s emitted by Users */
   traffic: number;
   onTraffic: (rps: number) => void;
+  /** a challenge trial is driving traffic: the slider shows it but can't be moved */
+  trafficLocked?: boolean;
   onAdd: (type: AddableType) => void;
   experimenting: boolean;
   onBreak: (kind: FaultKind) => void;
@@ -27,6 +30,7 @@ export function CanvasControls({
   onReset,
   traffic,
   onTraffic,
+  trafficLocked = false,
   onAdd,
   experimenting,
   onBreak,
@@ -69,7 +73,7 @@ export function CanvasControls({
 
       <Divider />
 
-      <TrafficControl value={traffic} onChange={onTraffic} running={running} />
+      <TrafficControl value={traffic} onChange={onTraffic} running={running} locked={trafficLocked} />
 
       <Divider />
 
@@ -137,7 +141,18 @@ function Button({
   );
 }
 
-function TrafficControl({ value, onChange, running }: { value: number; onChange: (v: number) => void; running: boolean }) {
+function TrafficControl({
+  value,
+  onChange,
+  running,
+  locked,
+}: {
+  value: number;
+  onChange: (v: number) => void;
+  running: boolean;
+  locked: boolean;
+}) {
+  const scaled = useScaled();
   const index = Math.max(0, TRAFFIC_STEPS.findIndex((s) => s >= value));
   return (
     <label className="flex h-7 items-center gap-2.5 px-2 font-mono text-[9.5px] uppercase tracking-[0.2em] text-ink-faint">
@@ -150,11 +165,14 @@ function TrafficControl({ value, onChange, running }: { value: number; onChange:
         step={1}
         value={index}
         onChange={(e) => onChange(TRAFFIC_STEPS[Number(e.target.value)])}
+        disabled={locked}
         aria-label="Traffic volume, requests per second"
-        aria-valuetext={`${value} requests per second`}
+        aria-valuetext={`${scaled.count(value)} requests per second`}
       />
-      <span className={`w-9 tabular-nums tracking-[0.08em] transition-colors ${running ? "text-accent" : "text-ink-soft"}`}>
-        {value}/s
+      <span
+        className={`min-w-9 tabular-nums tracking-[0.08em] transition-colors ${running ? "text-accent" : "text-ink-soft"}`}
+      >
+        {scaled.rate(value)}
       </span>
     </label>
   );

@@ -12,6 +12,7 @@ import {
   type SystemShape,
 } from "@/lib/experiments";
 import type { History, Sample } from "@/lib/sim/history";
+import { useLab, useScaled } from "./LabContext";
 
 type Props = {
   experiment: Experiment;
@@ -36,6 +37,7 @@ const reveal = {
  */
 export function ExperimentNote({ experiment, anchor, now, history, shape, onChoose, onRestore }: Props) {
   const scenario = scenarioByKind(experiment.kind);
+  const { scale } = useLab();
   const { breakAt, choice } = experiment;
   const stage = experimentStage(experiment, now);
   const broken = stage >= 1;
@@ -75,7 +77,7 @@ export function ExperimentNote({ experiment, anchor, now, history, shape, onChoo
             {broken && (
               <motion.div {...reveal}>
                 <Step n="1" label="Change">
-                  <p className="text-ink">{scenario.change(experiment.traffic)}</p>
+                  <p className="text-ink">{scenario.change(experiment.traffic * scale)}</p>
                 </Step>
               </motion.div>
             )}
@@ -209,8 +211,9 @@ function Progress({ from, to, now, tone }: { from: number; to: number; now: numb
 
 /** Before → after, measured: the visible consequence in numbers. */
 function Delta({ before, after }: { before?: Sample; after?: Sample }) {
+  const scaled = useScaled();
   const rows: { label: string; a?: number; b?: number; fmt: (v: number) => string; bad: (a: number, b: number) => boolean }[] = [
-    { label: "rate", a: before?.rps, b: after?.rps, fmt: (v) => `${Math.round(v)}/s`, bad: () => false },
+    { label: "rate", a: before?.rps, b: after?.rps, fmt: scaled.rate, bad: () => false },
     {
       label: "latency",
       a: before?.latencyMs,

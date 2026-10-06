@@ -43,8 +43,9 @@ export class Ledger {
     this.current = null;
   }
 
-  observe(m: Metrics, traffic: number, time: number, structure: string) {
-    const active = Object.entries(m.loads).filter(([id]) => (m.arrivals[id] ?? 0) > 0);
+  /** `serverIds`: the API servers (other capacity-bound nodes, like a capped database, aren't the pool). */
+  observe(m: Metrics, traffic: number, time: number, structure: string, serverIds: ReadonlySet<string>) {
+    const active = Object.entries(m.loads).filter(([id]) => serverIds.has(id) && (m.arrivals[id] ?? 0) > 0);
     const servers = active.length;
     const capacity = active.reduce((sum, [, l]) => sum + l.capacity, 0);
 

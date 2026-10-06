@@ -12,7 +12,7 @@ import {
   type LabNode,
   type LabNodeType,
 } from "@/lib/graph";
-import { useLab } from "../LabContext";
+import { useLab, useScaled } from "../LabContext";
 import { LoadGauge } from "./Readout";
 
 type Props = {
@@ -40,6 +40,7 @@ export function FocusNote({ nodeId, type, index }: Props) {
   const spec = catalog[type];
   const links = useLinks(nodeId);
   const data = useNodes<LabNode>().find((n) => n.id === nodeId)?.data;
+  const { locked } = useLab();
 
   return (
     <motion.div
@@ -110,7 +111,7 @@ export function FocusNote({ nodeId, type, index }: Props) {
           ))}
           {TUNABLES.map(({ field, ...t }) => {
             const value = data?.[field];
-            return value === undefined ? null : <StepperRow key={field} nodeId={nodeId} field={field} value={value} {...t} />;
+            return value === undefined || locked.includes(field) ? null : <StepperRow key={field} nodeId={nodeId} field={field} value={value} {...t} />;
           })}
         </motion.dl>
 
@@ -131,8 +132,8 @@ export function FocusNote({ nodeId, type, index }: Props) {
 type Tunable = "capacity" | "hitShare" | "ttl";
 
 /** The tunables a node's note offers, in display order. */
-const TUNABLES: { field: Tunable; label: string; steps: readonly number[]; format: (v: number) => string }[] = [
-  { field: "capacity", label: "capacity", steps: CAPACITY_STEPS, format: (v) => `${v}/s` },
+const TUNABLES: { field: Tunable; label: string; steps: readonly number[]; format?: (v: number) => string }[] = [
+  { field: "capacity", label: "capacity", steps: CAPACITY_STEPS }, // a rate: formatted with the sheet's scale
   { field: "hitShare", label: "hit rate", steps: HIT_SHARE_STEPS, format: (v) => `${Math.round(v * 100)}%` },
   { field: "ttl", label: "ttl", steps: TTL_STEPS, format: (v) => `${v}s` },
 ];
@@ -151,9 +152,11 @@ function StepperRow({
   label: string;
   value: number;
   steps: readonly number[];
-  format: (v: number) => string;
+  format?: (v: number) => string;
 }) {
   const { updateNodeData } = useReactFlow<LabNode, LabEdge>();
+  const scaled = useScaled();
+  const show = format ?? scaled.rate;
   const i = steps.findIndex((c) => c >= value);
   const step = (d: -1 | 1) => {
     const next = steps[Math.min(steps.length - 1, Math.max(0, i + d))];
@@ -176,7 +179,7 @@ function StepperRow({
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2 }}
         >
-          {format(value)}
+          {show(value)}
         </motion.span>
         <button
           className={btn}
@@ -235,6 +238,7 @@ function CacheInsight({ nodeId }: { nodeId: string }) {
  */
 function PoolComparison({ nodeId }: { nodeId: string }) {
   const { traffic } = useLab();
+  const scaled = useScaled();
   const edges = useEdges<LabEdge>();
   const nodes = useNodes<LabNode>();
 
@@ -259,14 +263,14 @@ function PoolComparison({ nodeId }: { nodeId: string }) {
   ];
   return (
     <div className="flex flex-col gap-1.5 font-mono text-[9px] tracking-[0.08em]">
-      <span className="text-[8px] uppercase tracking-[0.26em] text-ink-faint">At {traffic}/s</span>
+      <span className="text-[8px] uppercase tracking-[0.26em] text-ink-faint">At {scaled.rate(traffic)}</span>
       {rows.map(({ label, capacity }) => {
         const load = traffic / capacity;
         const tone = load >= 1 ? "text-fault" : load >= 0.75 ? "text-accent" : "text-ink-soft";
         return (
           <div key={label} className="flex items-center gap-2">
             <span className="w-16 text-ink-faint">{label}</span>
-            <span className="w-11 tabular-nums text-ink-soft">{capacity}/s</span>
+            <span className="w-14 tabular-nums text-ink-soft">{scaled.rate(capacity)}</span>
             <LoadGauge load={load} width={40} />
             <span className={`tabular-nums ${tone}`}>{Math.round(load * 100)}%</span>
           </div>
