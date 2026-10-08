@@ -59,7 +59,7 @@ export function CanvasControls({
     <>
     <motion.div
       ref={strip}
-      className="absolute bottom-6 left-1/2 sm:bottom-8 z-10 flex -translate-x-1/2 items-center gap-1 border border-white/[0.06] bg-[#0e0e0d]/80 px-2 py-1.5 backdrop-blur-sm"
+      className="absolute bottom-6 left-1/2 sm:bottom-8 z-10 flex -translate-x-1/2 items-center gap-1 max-sm:w-[calc(100vw-1.5rem)] max-sm:flex-wrap max-sm:justify-center border border-white/[0.06] bg-[#0e0e0d]/80 px-2 py-1.5 backdrop-blur-sm"
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 2.2, duration: 1, ease: [0.22, 1, 0.36, 1] }}

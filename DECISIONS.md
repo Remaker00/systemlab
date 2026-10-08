@@ -258,3 +258,13 @@ Reset clears the workshop to Users only and drops the design name. Saved designs
 This replaces Part 8's "Reset returns to the last saved or opened design".
 **Why:** the user expected Reset to start a new workshop. Returning to the saved design made it look as if Reset did nothing.
 
+
+### D56: Small screens get a "best on a bigger sheet" note, not a wall
+`SmallScreenNotice` covers the canvas on phones and portrait touch tablets
+(`(max-width: 767px), (pointer: coarse) and (max-width: 1023px)`), suggests a laptop or PC, and offers
+"Send the link to my computer" (Web Share, falling back to copying the link) and "Continue anyway". Dismissal lasts for
+the browser session (`sessionStorage`, guarded). The page is clipped (`overflow-hidden`) and the control strip wraps
+within the screen width on phones.
+**Why:** the canvas relies on dragging and small link handles, which don't work well by touch on a small screen. It's
+advice rather than a block, so someone who just wants a look can still see it. The strip was 698px wide, which made
+phone browsers zoom the whole page out and pushed fixed overlays off-centre.

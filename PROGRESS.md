@@ -2,6 +2,14 @@
 
 ## Status: Part 8 complete (2026-10-06). Waiting for the user to start Part 9.
 
+### Small-screen note (2026-10-08, between parts) ✅
+- [x] `SmallScreenNotice` on phones and portrait tablets: suggests a laptop or PC, "Send the link to my computer"
+      (share sheet or copy), "Continue anyway" (remembered for the session), About link. Esc dismisses. See D56.
+- [x] Fixed phone layout: the 698px control strip wraps within the screen and `main` clips overflow, so phones no longer
+      zoom the page out (layout viewport was 555px on a 412px phone).
+- [x] Verified headlessly: shown on Pixel 7, iPhone 13, iPad portrait; hidden on iPad landscape, 1100px and 1440px windows;
+      Continue hides it and it stays hidden after reload; no console errors.
+
 ### Part 1: Visual foundation ✅
 - [x] Next.js + TS + Tailwind v4 + React Flow + Framer Motion scaffold
 - [x] Charcoal paper background: fine line grid (24px), sparse registration crosses (192px), SVG grain, vignette

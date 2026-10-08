@@ -33,6 +33,7 @@ src/lib/experiments.ts      Break-the-System scenarios (copy), Experiment type, 
 src/lib/challenge.ts        sheets (01 sandbox, 02 surge, 03 workshop), challenge constants/scale, trial phases, scoreTrial
 src/lib/workshop.ts         workshop review: link rule table, missing connections, planned loads → ceiling/bottleneck
 src/lib/designs.ts          saved workshop designs in localStorage (guarded list/save/delete/open)
+src/components/SmallScreenNotice.tsx  phone/portrait-tablet note suggesting a laptop (D56)
 src/components/canvas/
   SystemCanvas.tsx          ReactFlow host, connect/validate, focus + reveal-pan, add components, title block,
                             comparison table, run/reset
